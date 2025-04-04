@@ -2,6 +2,7 @@ import logging
 
 # from line_profiler_pycharm import profile
 from matplotlib import pyplot as plt
+import numpy as np
 import xarray as xr
 import rioxarray
 from tqdm import tqdm
@@ -9,28 +10,74 @@ from tqdm import tqdm
 #@profile
 def basic_raster_stats(epo_path_dict, time_step_hours, crs, outdir='.', siteid='', verbose=True):
 
-    # load and stack dataarrays from list
-    list_da = []
-    for idx, (epo, dsi_path) in tqdm(enumerate(epo_path_dict.items()), total=len(epo_path_dict)):
+    # # load and stack dataarrays from list
+    # list_da = []
+    # for idx, (epo, dsi_path) in tqdm(enumerate(epo_path_dict.items()), total=len(epo_path_dict)):
+    #
+    #     da = xr.open_dataset(dsi_path)
+    #     da = da.assign_coords(time=epo)
+    #     da = da.expand_dims(dim="time")
+    #     da['flux'] = da.band_data
+    #     da = da.drop("band_data")
+    #     list_da.append(da)
+    #
+    # ds = xr.combine_by_coords(list_da)
+    # moon_sp_crs = crs
+    # ds.rio.write_crs(moon_sp_crs, inplace=True)
+    #
+    # # get cumulative flux
+    # step_sec = time_step_hours * 3600.
+    # dssum = (ds * step_sec).sum(dim='time')
+    # # get max flux
+    # dsmax = ds.max(dim='time')
+    # # get average flux
+    # dsmean = ds.mean(dim='time')
 
-        da = xr.open_dataset(dsi_path)
-        da = da.assign_coords(time=epo)
-        da = da.expand_dims(dim="time")
-        da['flux'] = da.band_data
-        da = da.drop("band_data")
-        list_da.append(da)
+    step_sec = time_step_hours * 3600.  # seconds per time step
 
-    ds = xr.combine_by_coords(list_da)
-    moon_sp_crs = crs
-    ds.rio.write_crs(moon_sp_crs, inplace=True)
+    # Initialize accumulators.
+    dssum = None  # for (flux * step_sec) cumulative sum
+    dsmax = None  # for elementwise maximum flux
+    cum_raw_sum = None  # for raw flux sum (to compute mean)
+    count = 0
 
-    # get cumulative flux (assuming 24H steps for now)
-    step_sec = time_step_hours * 3600.
-    dssum = (ds * step_sec).sum(dim='time')
-    # get max flux
-    dsmax = ds.max(dim='time')
-    # get average flux
-    dsmean = ds.mean(dim='time')
+    # Process each file one at a time.
+    for epo, dsi_path in tqdm(epo_path_dict.items(), total=len(epo_path_dict)):
+        # Open dataset in a context manager so it closes automatically.
+        with xr.open_dataset(dsi_path) as da:
+            # Optionally, assign a time coordinate and expand dimensions.
+            da = da.assign_coords(time=epo)
+            da = da.expand_dims(dim="time")
+            # Create a new variable 'flux' from 'band_data'
+            da = da.assign(flux=da.band_data)
+            da = da.drop_vars("band_data")
+
+            # Multiply flux by step_sec for cumulative sum.
+            current_sum = da.flux * step_sec
+
+            # Update accumulators.
+            if dssum is None:
+                dssum = current_sum
+                dsmax = da.flux
+                cum_raw_sum = da.flux
+            else:
+                dssum = dssum + current_sum
+                # Update elementwise maximum.
+                # (Using xr.apply_ufunc with np.maximum is one way)
+                dsmax = xr.apply_ufunc(np.maximum, dsmax, da.flux)
+                cum_raw_sum = cum_raw_sum + da.flux
+            count += 1
+
+    # Compute mean flux as cumulative raw flux divided by count.
+    dsmean = cum_raw_sum / count
+
+    # The final results are:
+    # ds_sum : cumulative flux (with step_sec scaling)
+    # ds_max : elementwise maximum flux
+    # ds_mean: mean flux over time
+    print("Cumulative sum:", dssum)
+    print("Cumulative max:", dsmax)
+    print("Mean flux:", dsmean)
 
     # save to raster
     epos_utc = list(epo_path_dict.keys())
