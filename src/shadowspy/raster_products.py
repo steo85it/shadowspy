@@ -35,41 +35,25 @@ def basic_raster_stats(epo_path_dict, time_step_hours, crs, outdir='.', siteid='
 
     step_sec = time_step_hours * 3600.  # seconds per time step
 
-    # Initialize accumulators.
-    dssum = None  # for (flux * step_sec) cumulative sum
-    dsmax = None  # for elementwise maximum flux
-    cum_raw_sum = None  # for raw flux sum (to compute mean)
-    count = 0
-
+    dsmax = xr.open_dataarray(list(epo_path_dict.values())[0]).squeeze()
+    epos = []
+    dssum = dsmax * step_sec
+    cum_raw_sum = dsmax
     # Process each file one at a time.
     for epo, dsi_path in tqdm(epo_path_dict.items(), total=len(epo_path_dict)):
         # Open dataset in a context manager so it closes automatically.
-        with xr.open_dataset(dsi_path) as da:
-            # Optionally, assign a time coordinate and expand dimensions.
-            da = da.assign_coords(time=epo)
-            da = da.expand_dims(dim="time")
-            # Create a new variable 'flux' from 'band_data'
-            da = da.assign(flux=da.band_data)
-            da = da.drop_vars("band_data")
+        with xr.open_dataarray(dsi_path).squeeze() as da:
+            epos.append(epo)
+            dsmax.data = np.max([dsmax, da], axis=0)
 
+            cum_raw_sum = cum_raw_sum + da
             # Multiply flux by step_sec for cumulative sum.
-            current_sum = da.flux * step_sec
+            current_sum = da * step_sec
 
-            # Update accumulators.
-            if dssum is None:
-                dssum = current_sum
-                dsmax = da.flux
-                cum_raw_sum = da.flux
-            else:
-                dssum = dssum + current_sum
-                # Update elementwise maximum.
-                # (Using xr.apply_ufunc with np.maximum is one way)
-                dsmax = xr.apply_ufunc(np.maximum, dsmax, da.flux)
-                cum_raw_sum = cum_raw_sum + da.flux
-            count += 1
+            dssum = dssum + current_sum
 
     # Compute mean flux as cumulative raw flux divided by count.
-    dsmean = cum_raw_sum / count
+    dsmean = cum_raw_sum / len(epo_path_dict)
 
     # The final results are:
     # ds_sum : cumulative flux (with step_sec scaling)
@@ -78,6 +62,12 @@ def basic_raster_stats(epo_path_dict, time_step_hours, crs, outdir='.', siteid='
     print("Cumulative sum:", dssum)
     print("Cumulative max:", dsmax)
     print("Mean flux:", dsmean)
+
+    fig, axes = plt.subplots(1, 3, figsize=(26, 6), sharey=True)
+    dsmax.plot(robust=True, ax=axes[0])
+    dsmean.plot(robust=True, ax=axes[1])
+    dssum.plot(robust=True, ax=axes[2])
+    plt.show()
 
     # save to raster
     epos_utc = list(epo_path_dict.keys())
@@ -90,32 +80,32 @@ def basic_raster_stats(epo_path_dict, time_step_hours, crs, outdir='.', siteid='
         end_time = epos_utc[-1].strftime(format_code)
 
     sumout = f"{outdir}{siteid}_sum_{start_time}_{end_time}.tif"
-    dssum.flux.rio.to_raster(sumout)
+    dssum.rio.to_raster(sumout)
     logging.info(f"- Cumulative flux "
                  #f"over {list(dsi_list.keys())[0]} to {list(dsi_list.keys())[-1]} "
                  f"saved to {sumout}.")
 
     maxout = f"{outdir}{siteid}_max_{start_time}_{end_time}.tif"
-    dsmax.flux.rio.to_raster(maxout)
+    dsmax.rio.to_raster(maxout)
     logging.info(f"- Maximum flux "
                  #f"over {list(dsi_list.keys())[0]} to {list(dsi_list.keys())[-1]} "
                  f"saved to {maxout}.")
 
     meanout = f"{outdir}{siteid}_mean_{start_time}_{end_time}.tif"
-    dsmean.flux.rio.to_raster(meanout)
+    dsmean.rio.to_raster(meanout)
     logging.info(f"- Average flux "
                  #f"over {list(dsi_list.keys())[0]} to {list(dsi_list.keys())[-1]} "
                  f"saved to {meanout}.")
 
     # plot statistics
     fig, axes = plt.subplots(1, 3, figsize=(26, 6))
-    dssum.flux.plot(ax=axes[0], robust=True)
+    dssum.plot(ax=axes[0], robust=True)
     axes[0].set_title(r'Sum (J/m$^2$)')
-    dsmax.flux.plot(ax=axes[1], robust=True)
+    dsmax.plot(ax=axes[1], robust=True)
     axes[1].set_title(r'Max (J/m$^2$/s)')
-    dsmean.flux.plot(ax=axes[2], robust=True)
+    dsmean.plot(ax=axes[2], robust=True)
     axes[2].set_title(r'Mean (J/m$^2$/s)')
     plt.suptitle(f'Statistics of solar flux at {siteid} between {start_time} and {end_time}.')
     pngout = f"{outdir}{siteid}_stats_{start_time}_{end_time}.png"
     plt.savefig(pngout) # 70%+ of time is spent here
-    # plt.show()
+    plt.show()
