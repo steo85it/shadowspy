@@ -3,9 +3,9 @@ from matplotlib import pyplot as plt
 from scipy.spatial import Delaunay
 import numpy as np
 
-from src.mesh_operations.boundary_finding import triangulate_and_find_boundaries_vectorized
-from src.mesh_operations.mesh_generation import generate_terrain_mesh, stack_meshes
-from src.mesh_operations.mesh_utils import remove_inner_from_outer, filter_faces, load_mesh, remove_faces_with_vertices
+from mesh_operations.boundary_finding import triangulate_and_find_boundaries_vectorized
+from mesh_operations.mesh_generation import generate_terrain_mesh, stack_meshes
+from mesh_operations.mesh_utils import remove_inner_from_outer, filter_faces, load_mesh, remove_faces_with_vertices
 
 
 def merge_inout(inner_mesh, outer_mesh, output_path, debug=False):

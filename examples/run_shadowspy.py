@@ -3,13 +3,13 @@ import time
 import xarray as xr
 import pandas as pd
 
-from examples.download_kernels import download_kernels
-from src.config import ShSpOpt
-from src.shadowspy.data_handling import fetch_and_process_data
-from src.shadowspy.dem_processing import prepare_dem_mesh
-from src.shadowspy.helpers import setup_directories, process_data_list
-from src.shadowspy.raster_products import basic_raster_stats
-from src.shadowspy.utilities import run_log
+# from examples.download_kernels import download_kernels
+from config import ShSpOpt
+from shadowspy.data_handling import fetch_and_process_data
+from shadowspy.dem_processing import prepare_dem_mesh
+from shadowspy.helpers import setup_directories, process_data_list
+from shadowspy.raster_products import basic_raster_stats
+from shadowspy.utilities import run_log
 # from line_profiler_pycharm import profile
 
 # @profile
@@ -18,8 +18,8 @@ def main_pipeline(opt):
     start_glb = time.time()
     
     # download kernels
-    if opt.download_kernels:
-        download_kernels()
+    # if opt.download_kernels:
+    #     download_kernels()
 
     # prepare useful dirs
     setup_directories(opt)

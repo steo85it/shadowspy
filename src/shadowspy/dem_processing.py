@@ -9,8 +9,8 @@ import rioxarray
 from shapely.geometry import box
 import logging
 
-from src.mesh_operations import mesh_generation
-from src.mesh_operations.helpers import prepare_inner_outer_mesh
+from mesh_operations import mesh_generation
+from mesh_operations.helpers import prepare_inner_outer_mesh
 
 #@profile
 def prepare_dem_mesh(dem_path, tmpdir, siteid, opt):

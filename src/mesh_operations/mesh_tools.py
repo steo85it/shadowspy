@@ -2,8 +2,8 @@ import meshio
 import numpy as np
 import logging
 
-from src.mesh_operations.mesh_utils import import_mesh, remove_degenerate_faces
-from src.shadowspy.shape import get_centroids
+from mesh_operations.mesh_utils import import_mesh, remove_degenerate_faces
+from shadowspy.shape import get_centroids
 
 
 def get_uniform_triangle_mesh(xgrid, ygrid, data, decimation=1):

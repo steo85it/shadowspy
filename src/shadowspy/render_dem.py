@@ -7,36 +7,36 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from src.mesh_operations.mesh_utils import remove_degenerate_faces
+from mesh_operations.mesh_utils import remove_degenerate_faces
 
 # from line_profiler_pycharm import profile
 
 RAYTRACING_BACKEND = 'cgal' # 'embree' #
 RAYTRACING_BACKEND = RAYTRACING_BACKEND.lower()
 if RAYTRACING_BACKEND == 'cgal':
-    from src.shadowspy.shape import CgalTrimeshShapeModel as MyTrimeshShapeModel, get_centroids
+    from shadowspy.shape import CgalTrimeshShapeModel as MyTrimeshShapeModel, get_centroids
 elif RAYTRACING_BACKEND == 'embree':
     try:
         import embree
     except:
         logging.error("* You need to add embree_vars to the PATH to use embree")
         exit()
-    from src.shadowspy.shape import EmbreeTrimeshShapeModel as MyTrimeshShapeModel
+    from shadowspy.shape import EmbreeTrimeshShapeModel as MyTrimeshShapeModel
 else:
     raise ValueError('RAYTRACING_BACKEND should be one of: "cgal", "embree"')
 
-from src.shadowspy.coord_tools import cart2sph, azimuth_elevation_to_cartesian, map_projection_to_azimuth
-from src.mesh_operations.mesh_utils import import_mesh
-from src.mesh_operations.mesh_tools import crop_mesh
-from src.shadowspy.spice_util import get_sourcevec
+from shadowspy.coord_tools import cart2sph, azimuth_elevation_to_cartesian, map_projection_to_azimuth
+from mesh_operations.mesh_utils import import_mesh
+from mesh_operations.mesh_tools import crop_mesh
+from shadowspy.spice_util import get_sourcevec
 import xarray as xr
 from rasterio.enums import Resampling
 
-from src.shadowspy.photometry import mmpf_mh_boyd2017lpsc
-from src.shadowspy.math_util import angle_btw
-from src.shadowspy.flux_util import get_Fsun
-from src.shadowspy.shape import get_centroids as get_cents, get_surface_normals
-from src.mesh_operations.plotting import rasterize_with_raytracing
+from shadowspy.photometry import mmpf_mh_boyd2017lpsc
+from shadowspy.math_util import angle_btw
+from shadowspy.flux_util import get_Fsun
+from shadowspy.shape import get_centroids as get_cents, get_surface_normals
+from mesh_operations.plotting import rasterize_with_raytracing
 
 
 def plot3d(mesh_path, var_to_plot, center='P'):
@@ -140,6 +140,8 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
         sourcedir = source_vecs / np.linalg.norm(source_vecs, axis=1)[:, np.newaxis]
 
     if center == 'P':
+        print(sourcedir.shape, shape_model.P.shape)
+        # exit()
         E = shape_model.get_direct_irradiance(inc_flux, sourcedir, basemesh=basemesh)
     elif center == 'V':
         E = shape_model.get_direct_irradiance_at_vertices(inc_flux, sourcedir, basemesh=basemesh)
@@ -251,7 +253,8 @@ def render_at_date(meshes, path_to_furnsh, epo_utc=None, center='P', crs=None, d
         meshes_cropped['stereo'] = f"{meshes_path}/cropped_st.vtk"
         meshes_cropped['cart'] = f"{meshes_path}/cropped.vtk"
         crop_mesh(dem_mask, meshes, mask=dem_mask, meshes_cropped=meshes_cropped)
-        
+
+        print(f"- Importing meshes at {date_illum_str}")
         V_st, F_st, N_st, P_st = import_mesh(f"{meshes_cropped['stereo']}", get_normals=True, get_centroids=True)
         V, F, N, P = import_mesh(meshes_cropped['cart'], get_normals=True, get_centroids=True)
     else:
@@ -260,6 +263,7 @@ def render_at_date(meshes, path_to_furnsh, epo_utc=None, center='P', crs=None, d
         V, F, N, P = import_mesh(f"{meshes['cart']}", get_normals=True, get_centroids=True)
         meshes_cropped = meshes
 
+    print(f"- Importing shape model at {date_illum_str}")
     if scatter and ('ffmat_path' in kwargs) and ('Vst_path' in kwargs):
         from flux.compressed_form_factors import CompressedFormFactorMatrix
 
@@ -283,6 +287,7 @@ def render_at_date(meshes, path_to_furnsh, epo_utc=None, center='P', crs=None, d
     else:
         basemesh = None
 
+    print(f"Computing flux at {date_illum_str}")
     # get flux at observer (would be good to just ask for F/V overlapping with meas image)
     flux_at_obs = get_flux_at_date(shape_model, date_illum_spice, path_to_furnsh=path_to_furnsh, source=source,
                                    inc_flux=inc_flux, center=center, point=point, scatter=scatter, basemesh=basemesh,
@@ -439,7 +444,7 @@ def render_match_image(pdir, meshes, path_to_furnsh, img_name, epo_utc,
         
     # save simulated image to raster
     outraster = f"{outdir}{img_name}_{date_illum_str}.tif"
-    rendering.transpose('y', 'x').rio.to_raster(outraster, compression='zstd')
+    rendering.transpose('y', 'x').rio.to_raster(outraster, compress='zstd')
 
     print(f"- Flux for {img_name} saved to {outraster} (xy resolution = {rendering.rio.resolution()}mpp). "
           f"Normalized by {exposure_factor}.")

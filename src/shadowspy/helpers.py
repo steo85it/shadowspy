@@ -8,9 +8,9 @@ import pandas as pd
 from rasterio._io import Resampling
 from tqdm import tqdm
 
-from src.shadowspy.flux_util import get_Fsun
-from src.shadowspy.image_util import read_img_properties
-from src.shadowspy.render_dem import irradiance_at_date, render_match_image, render_at_date
+from shadowspy.flux_util import get_Fsun
+from shadowspy.image_util import read_img_properties
+from shadowspy.render_dem import irradiance_at_date, render_match_image, render_at_date
 
 
 def setup_directories(opt):
@@ -34,9 +34,9 @@ def process_data_list(data_list, common_args, use_azi_ele, use_image_times, opt)
             epostr = datetime.datetime.strptime(func_args['epo_in'], '%Y-%m-%d %H:%M:%S.%f')
             epostr = epostr.strftime('%y%m%d%H%M%S')
 
-        if os.path.exists(f"{opt.outdir}{full_args['img_name']}_{epostr}.tif"):
-            print(f"- {opt.outdir}{full_args['img_name']}_{epostr}.tif already processed. Skip.")
-            continue
+        # if os.path.exists(f"{opt.outdir}{full_args['img_name']}_{epostr}.tif"):
+        #     print(f"- {opt.outdir}{full_args['img_name']}_{epostr}.tif already processed. Skip.")
+        #     continue
 
         if opt.irradiance_only:
             dsi, date_illum_str = irradiance_at_date(**full_args)
@@ -93,7 +93,7 @@ def dump_processing_results(dsi, dem, func_args, opt):
     dsi.rio.write_crs(dem.rio.crs, inplace=True)
     dsi = dsi.assign_coords(time=func_args['epo_in'])
     dsi = dsi.expand_dims(dim="time")
-    dsi = dsi.rio.reproject_match(dem, resampling=Resampling.cubic_spline)
+    dsi = dsi.rio.reproject_match(dem, resampling=Resampling.nearest) # cubic_spline)
     dsi.flux.rio.to_raster(outpath, compression='zstd')
 
     # from matplotlib import pyplot as plt

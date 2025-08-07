@@ -1,7 +1,7 @@
 import numpy as np
 import meshio
 
-from src.shadowspy.shape import get_centroids as get_cents, get_surface_normals
+from shadowspy.shape import get_centroids as get_cents, get_surface_normals
 
 
 def filter_faces(vertices_mask, faces):

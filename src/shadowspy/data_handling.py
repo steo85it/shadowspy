@@ -4,7 +4,7 @@ import os.path
 
 import pandas as pd
 
-from src.shadowspy.image_util import read_img_properties
+from shadowspy.image_util import read_img_properties
 
 
 def fetch_and_process_data(opt):

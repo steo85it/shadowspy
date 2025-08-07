@@ -5,8 +5,8 @@ import sys
 from importlib import resources
 import yaml
 from jinja2 import Template
-
-from src.shadowspy.utilities import load_config_yaml
+from pathlib import Path
+# from shadowspy.utilities import load_config_yaml
 
 logging.basicConfig(level=logging.INFO)
 
@@ -25,9 +25,13 @@ class ShSpOpt:
             self.initialized = True
 
     def setup_config(self, **kwargs):
-        # Load default configuration
-        with resources.open_text('src', 'default_config.yaml') as f:
+        # # Load default configuration
+        # with resources.open_text(__package__, 'default_config.yaml') as f:
+        #     default_config = yaml.safe_load(f)
+        cfg_path = Path(__file__).parent / "default_config.yaml"
+        with cfg_path.open("r") as f:
             default_config = yaml.safe_load(f)
+
         self.update_config(**default_config)
 
         # Handling command-line arguments to override

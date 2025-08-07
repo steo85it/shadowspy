@@ -1,8 +1,8 @@
 import meshio
 import numpy as np
 
-from src.shadowspy.coord_tools import unproject_stereographic, sph2cart
-from src.mesh_operations import load_mesh
+from shadowspy.coord_tools import unproject_stereographic, sph2cart
+from mesh_operations import load_mesh
 
 
 def split_merged(total_mesh_path, len_inner_faces, inner_mesh_path, outer_mesh_path,
