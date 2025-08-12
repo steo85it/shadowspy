@@ -4,6 +4,7 @@ base_resolution: 5
 max_extension: 350e3
 extres: {20e3: 40, 60e3: 80, 100e3: 240, 300e3: 480}
 dem_path: "{{ variables.indir }}ldem/{{ siteid }}_5mpp.tif"  #
+#shapefile_roi: [155e3, 90e3, 160e3, 95e3]
 fartopo_path: "/explore/nobackup/people/mkbarker/GCD/grid/20mpp/v4/public/final/LDEM_80S_40MPP_ADJ.TIF"
 outdir: "./out/uv_summer/" #{{ siteid }}/"
 tmpdir: "./tmp/uv_summer/{{ siteid }}/"

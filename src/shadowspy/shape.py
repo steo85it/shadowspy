@@ -449,6 +449,8 @@ class EmbreeTrimeshShapeModel(TrimeshShapeModel):
 
         scene.commit()
 
+        scene.set_mesh_data(self.P, self.N)
+
         # This is the only variable we need to retain a reference to
         # (I think)
         self.scene = scene
@@ -511,28 +513,61 @@ class EmbreeTrimeshShapeModel(TrimeshShapeModel):
         return vis.reshape(m, n)
 
     def _is_occluded(self, I, D):
+        """
+        I : (M,) face indices
+        D : (3,) for point sun or (K,3) for extended sun
+        returns:
+          (M,) bool for point sun
+          (M,K) bool for extended sun
+        """
+
         if D.ndim != 1 and D.ndim != 2:
             raise ValueError('D.ndim should be 1 or 2')
 
-        # TODO: see comment in _get_visibility
-        eps = 1e3*np.finfo(np.float32).resolution
+        print(D.shape)
 
-        m = len(I)
+        if False and D.shape[0] == 1:
+            # D = D.reshape(1, 3)
+            print("Going for K=1")
 
-        ray = embree.Ray1M(m)
-        ray.org[:] = self.P[I] + eps*self.N[I]
-        ray.dir[:] = D
-        ray.tnear[:] = 0
-        ray.tfar[:] = np.inf
-        ray.flags[:] = 0
+            # TODO: see comment in _get_visibility
+            eps = 1e3 * np.finfo(np.float32).resolution
 
-        context = embree.IntersectContext()
-        context.flags = embree.IntersectContextFlags.COHERENT
+            m = len(I)
 
-        self.scene.occluded1M(context, ray)
+            ray = embree.Ray1M(m)
+            ray.org[:] = self.P[I] + eps * self.N[I]
+            ray.dir[:] = D
+            ray.tnear[:] = 0
+            ray.tfar[:] = np.inf
+            ray.flags[:] = 0
 
-        return np.logical_not(np.isposinf(ray.tfar))
+            context = embree.IntersectContext()
+            context.flags = embree.IntersectContextFlags.COHERENT
 
+            self.scene.occluded1M(context, ray)
+
+            return np.logical_not(np.isposinf(ray.tfar))
+
+        else:
+            print("Going for any K")
+
+            I = np.asarray(I, dtype=np.int64)
+            D = np.asarray(D, dtype=np.float64)
+
+            eps = 1e3 * np.finfo(np.float32).resolution
+            # vis = self.scene.occluded_face_dir(I, D, self.P, self.N, eps=eps, dir_chunk=32)
+            vis = self.scene.occluded_face_dir(
+                I=np.asarray(I, dtype=np.int64),
+                D=np.ascontiguousarray(D, dtype=np.float64),
+                P=np.ascontiguousarray(self.P, dtype=np.float64),
+                N=np.ascontiguousarray(self.N, dtype=np.float64),
+                eps=eps,
+                # dir_chunk=64,  # tune 32..256
+            )
+            if vis.shape[1] == 1:
+                return vis[:, 0]
+            return vis
 
 trimesh_shape_models = [
     CgalTrimeshShapeModel,
