@@ -42,6 +42,8 @@ def main_pipeline(opt):
         'scatter': opt.scatter,
         'extsource_coord': opt.extsource_coord,
         'source': opt.source,
+        'observer': opt.observer,
+        'frame': opt.frame,
         'dem_path': dem_path,
     }
 
@@ -69,6 +71,8 @@ def main_pipeline(opt):
         'point': opt.point_source,
         'extsource_coord': opt.extsource_coord,
         'source': opt.source,
+        'observer': opt.observer,
+        'frame': opt.frame,
     }
 
     # 2) Change process_data_list to accept `static` and `dynamic_common`

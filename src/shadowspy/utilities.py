@@ -1,6 +1,7 @@
 import json
 import time
 import yaml
+import numpy as np
 
 def run_log(logpath = None, **kwargs):
 

@@ -2,6 +2,9 @@
 # -------
 siteid: None
 Fsun: 1361  # W/m2
+observer: MOON
+frame: MOON_ME
+albedo: 0.1
 flux_path: None
 wavelength: null
 Rb: 1737.4  # km

@@ -167,81 +167,67 @@ def process_data_list(data_list,
                       use_azi_ele,
                       use_image_times,
                       opt):
+
     dsi_epo_path_dict = {}
     dem = xr.open_dataarray(static['dem_path'])
 
-    for data in tqdm(data_list, total=len(data_list)):
-        # 2a) prepare the per‐epoch bits
-        common_args, func_args = prepare_processing(
-            use_azi_ele, use_image_times, data, dynamic_common, opt
-        )
+    try:
+        for step_idx, data in tqdm(enumerate(data_list), total=len(data_list)):
+            # 2a) prepare the per‐epoch bits
+            common_args, func_args = prepare_processing(
+                use_azi_ele, use_image_times, data, dynamic_common, opt
+            )
 
-        # 2b) merge everything:
-        # full_args = {
-        #     **static,      # includes P, N, shape_models, dem_path, etc.
-        #     **common_args, # includes date strings, azi_ele, img_name, etc.
-        #     **func_args,   # anything else you need
-        # }
-        full_args = {
-            **static,  # all your one‐time geometry & models
-            **dynamic_common,  # your small common params
-            **func_args,  # the per‐epoch bits (azi/ele, epo_in, img_name, etc.)
-        }
+            # 2b) merge everything:
+            full_args = {
+                **static,  # all your one‐time geometry & models
+                **dynamic_common,  # your small common params
+                **func_args,  # the per‐epoch bits (azi/ele, epo_in, img_name, etc.)
+            }
 
-        # print(full_args)
-        # exit()
+            # get illum epoch string
+            try:
+                epostr = f"{func_args['azi_ele_deg'][0]}_{func_args['azi_ele_deg'][1]}"
+            except:
+                epostr = datetime.datetime.strptime(func_args['epo_in'], '%Y-%m-%d %H:%M:%S.%f')
+                epostr = epostr.strftime('%y%m%d%H%M%S')
 
-        # 2c) pick your renderer or irradiance function
-        if opt.irradiance_only:
-            dsi, date_illum_str = irradiance_at_date(**full_args)
-            key, value = dump_processing_results(dsi, dem, func_args, opt)
-        else:
-            if use_image_times:
-                dsi_path = render_match_image(**full_args)
-                key, value = func_args['epo_in'], dsi_path
-            else:
-                dsi, date_illum_str = render_at_date(**full_args)
+            if os.path.exists(f"{opt.outdir}{opt.siteid}/{opt.siteid}_{epostr}.tif"):
+                print(f"- {opt.outdir}{opt.siteid}/{opt.siteid}_{epostr}.tif already processed. Skip.")
+                continue
+
+            # 2c) pick your renderer or irradiance function
+            if opt.irradiance_only:
+                dsi, date_illum_str = irradiance_at_date(**full_args)
                 key, value = dump_processing_results(dsi, dem, func_args, opt)
+            else:
+                if use_image_times:
+                    dsi_path = render_match_image(**full_args)
+                    key, value = func_args['epo_in'], dsi_path
+                else:
+                    dsi, date_illum_str = render_at_date(**full_args)
+                    key, value = dump_processing_results(dsi, dem, func_args, opt)
 
-        dsi_epo_path_dict[key] = value
+            dsi_epo_path_dict[key] = value
+
+            # test
+            # drop into the step loop after writing the raster
+            import tracemalloc, psutil, gc
+            if step_idx == 0:
+                tracemalloc.start()
+
+            gc.collect()
+            print("RSS (MB):", psutil.Process(os.getpid()).memory_info().rss / 1e6)
+            cur, peak = tracemalloc.get_traced_memory()
+            print("Tracemalloc current/peak (MB):", cur / 1e6, peak / 1e6)
+
+    finally:
+        try:
+            dem.close()
+        except Exception:
+            pass
 
     return dsi_epo_path_dict
-
-
-#@profile
-# def process_data_list(data_list, common_args, use_azi_ele, use_image_times, opt):
-#     dsi_epo_path_dict = {}
-#     dem = xr.open_dataarray(common_args['dem_path'])
-#
-#     for data in tqdm(data_list, total=len(data_list)):
-#         common_args, func_args = prepare_processing(use_azi_ele, use_image_times, data, common_args, opt)
-#         full_args = {**common_args, **func_args}
-#
-#         try:
-#             epostr = f"{func_args['azi_ele_deg'][0]}_{func_args['azi_ele_deg'][1]}"
-#         except:
-#             epostr = datetime.datetime.strptime(func_args['epo_in'], '%Y-%m-%d %H:%M:%S.%f')
-#             epostr = epostr.strftime('%y%m%d%H%M%S')
-#
-#         # if os.path.exists(f"{opt.outdir}{full_args['img_name']}_{epostr}.tif"):
-#         #     print(f"- {opt.outdir}{full_args['img_name']}_{epostr}.tif already processed. Skip.")
-#         #     continue
-#
-#         if opt.irradiance_only:
-#             dsi, date_illum_str = irradiance_at_date(**full_args)
-#             key, value = dump_processing_results(dsi, dem, func_args, opt)
-#             dsi_epo_path_dict[key] = value
-#         else:
-#             if use_image_times:
-#                 dsi_path = render_match_image(**full_args)
-#                 dsi_epo_path_dict[func_args['epo_in']] = dsi_path
-#             else:
-#                 dsi, date_illum_str = render_at_date(**full_args)
-#                 key, value = dump_processing_results(dsi, dem, func_args, opt)
-#                 dsi_epo_path_dict[key] = value
-#
-#     return dsi_epo_path_dict
-
 
 def prepare_processing(use_azi_ele, use_image_times, data, common_args, opt):
     if use_azi_ele:
@@ -285,10 +271,24 @@ def dump_processing_results(dsi, dem, func_args, opt):
     dsi = dsi.rio.reproject_match(dem, resampling=Resampling.nearest) # cubic_spline)
     dsi.flux.rio.to_raster(outpath, compress='zstd')
 
-    from matplotlib import pyplot as plt
-    dsi.flux.plot(robust=True)
-    plt.show()
-    # dsi.flux.plot(vmin=0, vmax=0.1)
-    # plt.show()
+    # OPTIONAL preview; ensure the figure is closed so it doesn't accumulate
+    try:
+        from matplotlib import pyplot as plt
+        fig, ax = plt.subplots()
+        dsi.flux.plot(ax=ax, robust=True)
+        fig.canvas.draw()  # render once if you need it interactively
+        plt.close(fig)  # <<< IMPORTANT: free the figure
+    except Exception:
+        pass  # plotting is optional; never block
+
+    # close and clean memory
+    try:
+        dsi.close()
+    except Exception:
+        pass
+    del dsi
+
+    import gc
+    gc.collect()
 
     return epostr, outpath

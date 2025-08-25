@@ -68,8 +68,9 @@ def extended_source(sun_vecs, extsource_coord):
     return sun_veccs + Vs * extsun_tiled[:, 0][:, np.newaxis] * Rs + Ws * extsun_tiled[:, 1][:, np.newaxis] * Rs
 
 #@profile
-def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN', inc_flux=1361., center='P',
-                     point=True, scatter=False, basemesh=None, return_irradiance=False, azi_ele_deg=None, extsource_coord=None,
+def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN',  point=True, scatter=False,
+                     inc_flux=1361., frame='MOON_ME', observer='MOON',
+                     center='P', basemesh=None, return_irradiance=False, azi_ele_deg=None, extsource_coord=None,
                      crs=None, ffmat_path=None):
 
     if center == 'V':
@@ -85,7 +86,7 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
     if azi_ele_deg == None:
         point_source_vecs = get_sourcevec(utc0=utc0, stepet=1, et_linspace=np.linspace(0, 1, 1),
                                    path_to_furnsh=path_to_furnsh,
-                                   target=source, frame='MOON_ME', observer='MOON')#*1e3
+                                   target=source, frame=frame, observer=observer)#*1e3
     else:
         # getting float lat/lon to pass
         latitude_deg, longitude_deg = np.rad2deg(np.vstack(cart2sph(np.mean(C, axis=0)))[1:])
@@ -304,6 +305,8 @@ def render_at_date(
         basemesh,
         path_to_furnsh,
         source,
+        observer,
+        frame,
         inc_flux,
         extsource_coord,
         center='P',
@@ -337,6 +340,8 @@ def render_at_date(
         utc0=date_illum_spice,
         path_to_furnsh=path_to_furnsh,
         source=source,
+        observer=observer,
+        frame=frame,
         inc_flux=inc_flux,
         center=center,
         point=point,
@@ -491,5 +496,15 @@ def render_match_image(pdir, meshes, path_to_furnsh, img_name, epo_utc,
 
     print(f"- Flux for {img_name} saved to {outraster} (xy resolution = {rendering.rio.resolution()}mpp). "
           f"Normalized by {exposure_factor}.")
+
+    # after writing:
+    try:
+        rendering.close()
+    except Exception:
+        pass
+    try:
+        meas.close()
+    except Exception:
+        pass
 
     return outraster

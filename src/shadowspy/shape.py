@@ -46,8 +46,16 @@ def get_surface_normals_and_face_areas(V, F):
 
     return N, A
 
-
 def get_vertex_normals(V, F):
+    tri_normals = get_surface_normals(V, F)
+    vertex_normals = np.zeros_like(V, dtype=tri_normals.dtype)
+    # counts via bincount instead of unique
+    counts = np.bincount(F.ravel(), minlength=len(V))
+    np.add.at(vertex_normals, F.ravel(), np.repeat(tri_normals, 3, axis=0))
+    vertex_normals /= counts[:, None]
+    return vertex_normals
+
+def get_vertex_normals_slow(V, F):
 
     # not normalized?
     triangle_normals = get_surface_normals(V, F)

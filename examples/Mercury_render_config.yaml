@@ -1,0 +1,24 @@
+root: "./"
+indir: "./aux/"
+base_resolution: 200
+max_extension: 300e3
+extres: {150e3: 400, 250e3: 600} #50e3: 200, , 300e3: 800}
+#dem_path: "/home/emazaric/ldem_{{ siteid }}.tif"  #
+#dem_path: "/panfs/ccds02/nobackup/people/sberton2/RING/code/sfs_helper/examples/sfs/Mercury/MSP/proc/tile_{{ siteid }}/ldem_{{ siteid }}_orig_old.tif"
+dem_path: "/panfs/ccds02/nobackup/people/sberton2/RING/code/sfs_helper/examples/sfs/Mercury/MSP/proc/tile_{{ siteid }}/sfs200_sel0_2.5_1e-5/run-DEM-final.tif"
+
+#shapefile_roi: [155e3, 90e3, 160e3, 95e3]
+fartopo_path: "/home/sberton2/nobackup/RING/code/sfs_helper/examples/sfs/Mercury/MSP/proc/tile_0/ldem_0_5000mpp_avg_200mpp.tif"
+outdir: "./out/MSP/tst2_ext_{{ siteid }}/"
+tmpdir: "./tmp/MSP/tst2_{{ siteid }}/"
+start_time: "2011-5-04 00:00:00.0" # datetime.datetime(2026, 11, 01, hour=0, minute=0, second=0.)
+end_time: "2011-5-08 00:00:00.0" # datetime.datetime(2026, 11, 29, hour=0, minute=0, second=0.)
+time_step_hours: 72
+download_kernels: false
+point_source: false # true
+extsource_coord: "./aux/coordflux_100pts_outline33_centerlast_R1_F1_stdlimbdark.txt"
+Fsun: 9082.7  # W/m2
+albedo: 0.142
+Rb: 2439.4 # km
+observer: MERCURY
+frame: IAU_MERCURY
