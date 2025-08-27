@@ -63,7 +63,7 @@ def main():
     outdir = args.out
     os.makedirs(outdir, exist_ok=True)
 
-    QUICK = True if args.quick else True
+    QUICK = True if args.quick else False
     if QUICK:
         Rc, depth, Rdom = 200.0, 40.0, 600.0
         Nr, Nth = 24, 48

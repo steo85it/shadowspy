@@ -125,8 +125,10 @@ def setup_geometry(*,
         'basemesh_path':  basemesh_path,
         'P_st':           P_st,
         'N_st':           N_st,
+        'V_st':           V_st,
         'P':              P,
         'N':              N,
+        'V':              V,
         'shape_model':    shape_model,
         'shape_model_st': shape_model_st,
         'basemesh':       basemesh,
@@ -173,6 +175,8 @@ def process_data_list(data_list,
 
     try:
         for step_idx, data in tqdm(enumerate(data_list), total=len(data_list)):
+
+            start = time.time()
             # 2a) prepare the per‐epoch bits
             common_args, func_args = prepare_processing(
                 use_azi_ele, use_image_times, data, dynamic_common, opt
@@ -185,6 +189,7 @@ def process_data_list(data_list,
                 **func_args,  # the per‐epoch bits (azi/ele, epo_in, img_name, etc.)
             }
 
+            # TODO clean up hardcoded and duplicated from dump_processing_results
             # get illum epoch string
             try:
                 epostr = f"{func_args['azi_ele_deg'][0]}_{func_args['azi_ele_deg'][1]}"
@@ -192,14 +197,21 @@ def process_data_list(data_list,
                 epostr = datetime.datetime.strptime(func_args['epo_in'], '%Y-%m-%d %H:%M:%S.%f')
                 epostr = epostr.strftime('%y%m%d%H%M%S')
 
-            if os.path.exists(f"{opt.outdir}{opt.siteid}/{opt.siteid}_{epostr}.tif"):
-                print(f"- {opt.outdir}{opt.siteid}/{opt.siteid}_{epostr}.tif already processed. Skip.")
+            outpath = f"{opt.outdir}{opt.siteid}/{opt.siteid}_{epostr}.tif"
+            if os.path.exists(outpath):
+                print(f"- {outpath} already processed. Skip.")
+                dsi_epo_path_dict[epostr] = outpath
                 continue
+            print(f"Preprocessing: {round(time.time()-start, 2)}s")
 
             # 2c) pick your renderer or irradiance function
             if opt.irradiance_only:
+                start = time.time()
                 dsi, date_illum_str = irradiance_at_date(**full_args)
+                print(f"irradiance_at_date: {round(time.time()-start, 2)}s")
+                start = time.time()
                 key, value = dump_processing_results(dsi, dem, func_args, opt)
+                print(f"dump_processing_results: {round(time.time()-start, 2)}s")
             else:
                 if use_image_times:
                     dsi_path = render_match_image(**full_args)
@@ -268,18 +280,18 @@ def dump_processing_results(dsi, dem, func_args, opt):
     dsi.rio.write_crs(dem.rio.crs, inplace=True)
     dsi = dsi.assign_coords(time=func_args['epo_in'])
     dsi = dsi.expand_dims(dim="time")
-    dsi = dsi.rio.reproject_match(dem, resampling=Resampling.nearest) # cubic_spline)
+    # dsi = dsi.rio.reproject_match(dem, resampling=Resampling.nearest) # cubic_spline)
     dsi.flux.rio.to_raster(outpath, compress='zstd')
 
     # OPTIONAL preview; ensure the figure is closed so it doesn't accumulate
-    try:
-        from matplotlib import pyplot as plt
-        fig, ax = plt.subplots()
-        dsi.flux.plot(ax=ax, robust=True)
-        fig.canvas.draw()  # render once if you need it interactively
-        plt.close(fig)  # <<< IMPORTANT: free the figure
-    except Exception:
-        pass  # plotting is optional; never block
+    # try:
+    #     from matplotlib import pyplot as plt
+    #     fig, ax = plt.subplots()
+    #     dsi.flux.plot(ax=ax, robust=True)
+    #     fig.canvas.draw()  # render once if you need it interactively
+    #     plt.close(fig)  # <<< IMPORTANT: free the figure
+    # except Exception:
+    #     pass  # plotting is optional; never block
 
     # close and clean memory
     try:

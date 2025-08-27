@@ -73,6 +73,7 @@ def main_pipeline(opt):
         'source': opt.source,
         'observer': opt.observer,
         'frame': opt.frame,
+        'center': 'V',
     }
 
     # 2) Change process_data_list to accept `static` and `dynamic_common`

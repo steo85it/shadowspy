@@ -3,15 +3,15 @@ indir: "./aux/"
 base_resolution: 5
 max_extension: 350e3
 extres: {25e3: 40, 60e3: 80, 100e3: 240, 300e3: 480}
-dem_path: "{{ variables.indir }}ldem/{{ siteid }}_005.tif"  #
+dem_path: "{{ variables.indir }}sfs/{{ siteid }}_005.tif"  #
 fartopo_path: "/explore/nobackup/people/mkbarker/GCD/grid/20mpp/v4/public/final/LDEM_80S_40MPP_ADJ.TIF"
-outdir: "./out/uv_summer/" #{{ siteid }}/"
-tmpdir: "./tmp/uv_point_summer/{{ siteid }}/"
+outdir: "./out/uv_point_summer/{{ siteid }}/"
+tmpdir: "./tmp/uv_summer/{{ siteid }}/"
 start_time: "2026-11-01 00:00:00.0" # datetime.datetime(2026, 11, 01, hour=0, minute=0, second=0.)
 end_time: "2026-11-29 00:00:00.0" # datetime.datetime(2026, 11, 29, hour=0, minute=0, second=0.)
 time_step_hours: 6
 download_kernels: false
-point_source: false
+point_source: true
 extsource_coord: "./aux/coordflux_100pts_outline33_centerlast_R1_F1_stdlimbdark.txt"
 irradiance_only: true
 flux_path: "./aux/ref_solar_irradiance_whi-2008_ver2.dat"

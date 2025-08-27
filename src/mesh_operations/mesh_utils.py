@@ -86,6 +86,12 @@ def import_mesh(mesh_path, get_normals=False, get_centroids=False):
         raise ValueError("No triangle cells found in mesh")
     F = tri_block.data.astype(np.int32, copy=False)
 
+    # V to native little endian
+    def _native_f8(a):
+        return np.ascontiguousarray(np.asarray(a, dtype=np.float64))
+
+    V = _native_f8(V)
+
     if (not get_normals) and (not get_centroids):
         return V, F
 

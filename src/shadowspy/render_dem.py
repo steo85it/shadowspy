@@ -129,12 +129,7 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
 
         sourcedir = source_vecs / np.linalg.norm(source_vecs, axis=1)[:, np.newaxis]
 
-    if center == 'P':
-        print(sourcedir.shape, shape_model.P.shape)
-        # exit()
-        E = shape_model.get_direct_irradiance(inc_flux, sourcedir, basemesh=basemesh)
-    elif center == 'V':
-        E = shape_model.get_direct_irradiance_at_vertices(inc_flux, sourcedir, basemesh=basemesh)
+    E = shape_model.get_direct_irradiance(inc_flux, sourcedir, basemesh=basemesh, center=center)
 
     if scatter:
         FF_path = "/panfs/ccds02/nobackup/people/sberton2/habnich/shadowspy_dev/examples/out/DG1/FF_0.05_3.0_1e-2.bin"
@@ -197,101 +192,6 @@ def irradiance_with_scattered_flux(FF_path, D, E0):
 
     return Qrefl, QIR
 
-
-#@profile
-# def render_at_date(meshes, path_to_furnsh, epo_utc=None, center='P', crs=None, dem_mask=None, source='SUN',
-#                    inc_flux=1361, basemesh_path=None, show=False, point=True, scatter=False, azi_ele_deg=None, return_irradiance=False,
-#                    extsource_coord=None, **kwargs):
-#     """
-#     Render terrain at epoch
-#     @param meshes:
-#     @param epo_utc:
-#     @param path_to_furnsh:
-#     @param center:
-#     @param crs:
-#     @param dem_mask: GeoDataFrame, polygon of region to crop
-#     @param source:
-#     @param inc_flux:
-#     @param basemesh_path: str, full inner+outer mesh path (inner part should be identical to meshes)
-#     @param show:
-#     @param point: Bool, use point or extended (if False) source
-#     @param azi_ele_deg:
-#     @param return_irradiance:
-#     @return:
-#     """
-#
-#     start = time.time()
-#
-#     date_illum_spice = []
-#
-#     if azi_ele_deg is None:
-#         input_YYMMGGHHMMSS = datetime.strptime(epo_utc.strip(), '%Y-%m-%d %H:%M:%S.%f')
-#         format_code = '%Y%m%d%H%M%S'
-#         date_illum_str = input_YYMMGGHHMMSS.strftime(format_code)
-#         format_code = '%Y %m %d %H:%M:%S'
-#         date_illum_spice = input_YYMMGGHHMMSS.strftime(format_code)
-#     else:
-#         date_illum_str = None
-#         date_illum_spice = None
-#
-#     print(f"- {round(time.time()-start,0)} s - Importing external shape model at {date_illum_str}")
-#     start = time.time()
-#
-#     print(f"Computing flux at {date_illum_str}")
-#     # get flux at observer (would be good to just ask for F/V overlapping with meas image)
-#     flux_at_obs = get_flux_at_date(shape_model, date_illum_spice, path_to_furnsh=path_to_furnsh, source=source,
-#                                    inc_flux=inc_flux, center=center, point=point, scatter=scatter, basemesh=basemesh,
-#                                    return_irradiance=return_irradiance, azi_ele_deg=azi_ele_deg,
-#                                    extsource_coord=extsource_coord, crs=crs, ffmat_path=FF_path)
-#
-#     print(f"- {round(time.time()-start,0)} s - Got flux at at {date_illum_str}")
-#     start = time.time()
-#
-#     if scatter: # maybe just necessary if using unequal grid from python-flux
-#         ds = rasterize_with_raytracing({'flux':flux_at_obs}, shape_model_st)
-#
-#     else:
-#         if show:
-#             # plot3d(mesh_path=f"{meshes['cart']}", var_to_plot=flux_at_obs)
-#             plot3d(mesh_path=meshes_cropped['stereo'], var_to_plot=flux_at_obs)
-#
-#         # rasterize results from mesh
-#         # ---------------------------
-#         if center == 'V':
-#             flux_df = pd.DataFrame(np.vstack([V_st[:, 0].ravel(), V_st[:, 1].ravel(), flux_at_obs]).T,
-#                                    columns=['x', 'y', 'flux'])
-#         elif center == 'P':
-#             flux_df = pd.DataFrame(np.vstack([P_st[:, 0].ravel(), P_st[:, 1].ravel(), flux_at_obs]).T,
-#                                    columns=['x', 'y', 'flux'])
-#
-#         duplicates = flux_df.duplicated(subset=['y', 'x'], keep='first')
-#         if len(flux_df[duplicates]) > 0:
-#             logging.warning(f"- render_at_date is dropping {len(flux_df[duplicates])/len(flux_df)*100.}% duplicated rows. Check.")
-#             flux_df = flux_df[~duplicates]
-#
-#         flux_df = flux_df.set_index(['y', 'x'], verify_integrity=True)
-#
-#         ds = flux_df.to_xarray()
-#
-#     print(f"- {round(time.time()-start,0)} s - Rasterized at {date_illum_str}")
-#     start = time.time()
-#
-#     if crs != None:
-#         # assign crs
-#         img_crs = crs
-#         ds.rio.write_crs(img_crs, inplace=True)
-#
-#     # interpolate nans
-#     ds['x'] = ds.x * 1e3
-#     ds['y'] = ds.y * 1e3
-#
-#     dsi = ds.interpolate_na(dim="x").interpolate_na(dim="y")
-#
-#     print(f"- {round(time.time()-start,0)} s - Interpolated and returned at {date_illum_str}")
-#     start = time.time()
-#
-#     return dsi, date_illum_str
-
 def render_at_date(
         # — all the per‐epoch args —
         P_st,
@@ -333,6 +233,10 @@ def render_at_date(
         date_illum_str   = None
         date_illum_spice = None
 
+    if center == 'V':
+        assert "V_st" in kwargs, "V_st must be provided if center='V'."
+        V_st = kwargs["V_st"]
+
     # ─── 2) compute flux at this epoch ─────────────────────────────
     print(f"Computing flux at {date_illum_str}")
     flux_at_obs = get_flux_at_date(
@@ -360,10 +264,9 @@ def render_at_date(
 
     else:
         # build a tiny DataFrame of (x,y,flux)
-        if center == 'V':
-            coords = V_st if center=='V' else P_st
-        else:
-            coords = P_st
+        coords = V_st if center=='V' else P_st
+        coords = np.ascontiguousarray(np.asarray(coords, dtype=np.float64))
+        # flux = np.ascontiguousarray(np.asarray(flux_at_obs, dtype=np.float64))
 
         df = pd.DataFrame({
             'x': coords[:,0],
