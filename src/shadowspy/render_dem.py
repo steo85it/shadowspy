@@ -261,7 +261,6 @@ def render_at_date(
     if scatter:
         # uses shape_model_st under the hood
         ds = rasterize_with_raytracing({'flux': flux_at_obs}, shape_model_st)
-
     else:
         # build a tiny DataFrame of (x,y,flux)
         coords = V_st if center=='V' else P_st

@@ -14,5 +14,5 @@ bbox_roi: [50e3, -150e3, 150e3, -50e3] # minx, miny, maxx, maxy
 download_kernels: false
 point_source: true
 extsource_coord: "./aux/coordflux_100pts_outline33_centerlast_R1_F1_stdlimbdark.txt"
-#images_index: "/home/sberton2/Lavoro/projects/validate_shadowspy/final_selection_0_sel0.csv"
+images_index: "/home/sberton2/Lavoro/projects/validate_shadowspy/final_selection_0_sel0.csv"
 #azi_ele_path: "azi_ele_list.in"
