@@ -3,7 +3,7 @@ max_extension: 200e3
 extres: {20e3: 80, 60e3: 120, 100e3: 240, 300e3: 480}
 root: "./"
 indir: "./aux/"
-dem_path: "/home/sberton2/Lavoro/projects/validate_shadowspy/LDEM_80S_40MPP_ADJ.TIF"
+dem_path: "/explore/nobackup/people/mkbarker/GCD/grid/20mpp/v4/public/final/LDEM_80S_40MPP_ADJ.TIF"
 fartopo_path: 'same_dem'
 outdir: "./out/"
 tmpdir: "./tmp/"

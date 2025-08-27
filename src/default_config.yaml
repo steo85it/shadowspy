@@ -2,6 +2,9 @@
 # -------
 siteid: None
 Fsun: 1361  # W/m2
+observer: MOON
+frame: MOON_ME
+albedo: 0.1
 flux_path: None
 wavelength: null
 Rb: 1737.4  # km
@@ -36,6 +39,9 @@ images_index: None #
 point_source: true
 source: 'SUN'
 extsource_coord: None
+scatter: false
+ffmat_path: None
+Vst_path: None
 
 # dirs
 # ----

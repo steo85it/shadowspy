@@ -1,8 +1,10 @@
 import logging
 import datetime
+import os.path
+
 import pandas as pd
 
-from src.shadowspy.image_util import read_img_properties
+from shadowspy.image_util import read_img_properties
 
 
 def fetch_and_process_data(opt):
@@ -24,10 +26,22 @@ def fetch_and_process_data(opt):
         images_index = opt.images_index
         cumindex = pd.read_csv(images_index, index_col=None)
         # get list of images from cumindex
-        data_list = read_img_properties(cumindex, columns=['PRODUCT_ID', 'START_TIME', 'ortho_path'])
-        # data_list['meas_path'] = [f"{opt.indir}{img}_map.tif"
-        #                                   for img in data_list.PRODUCT_ID.values]
-        data_list = [(row[0], row[1].strip(), row[2]) for idx, row in data_list.iterrows()]
+        try:
+            data_list = read_img_properties(cumindex, columns=['PRODUCT_ID', 'START_TIME', 'ortho_path'])
+        except:
+            full_index = pd.read_parquet("/home/tmckenna/nobackup/sfs_helper/examples/HLS/A3BA/root/CUMINDEX.parquet")
+            img_list = [x for x in cumindex.img_name.values
+                        if os.path.exists(f"/home/tmckenna/nobackup/sfs_helper/examples/HLS/A3BA/proc/tile_0/sel_0/prj/ba_align/{x}_map.tif")]
+            cumindex = full_index.copy()
+            cumindex = cumindex.loc[full_index.PRODUCT_ID.str.strip().isin(img_list)]
+            # cumindex['ortho_path'] = [f"/home/tmckenna/nobackup/sfs_helper/examples/HLS/A3BA/proc/tile_0/sel_0/prj/ba_align_unselected/{img}_map.tif"
+            #                           for img in cumindex.PRODUCT_ID.str.strip().values]
+            cumindex.loc[:, 'ortho_path'] = [
+                f"/home/tmckenna/nobackup/sfs_helper/examples/HLS/A3BA/proc/tile_0/sel_0/prj/ba_align/{img}_map.tif"
+                for img in cumindex.PRODUCT_ID.str.strip().values]
+            data_list = read_img_properties(cumindex, columns=['PRODUCT_ID', 'START_TIME', 'ortho_path'])
+
+        data_list = [(row.iloc[0], row.iloc[1].strip(), row.iloc[2]) for idx, row in data_list.iterrows()]
 
     elif len(opt.epos_utc) > 0:
         data_list = opt.epos_utc

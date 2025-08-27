@@ -9,8 +9,8 @@ import rioxarray
 from shapely.geometry import box
 import logging
 
-from src.mesh_operations import mesh_generation
-from src.mesh_operations.helpers import prepare_inner_outer_mesh
+from mesh_operations import mesh_generation
+from mesh_operations.helpers import prepare_inner_outer_mesh
 
 #@profile
 def prepare_dem_mesh(dem_path, tmpdir, siteid, opt):
@@ -49,7 +49,7 @@ def generate_outer_mesh(dem_path, meshpath, tmpdir, ext, opt):
     max_extension = float(opt.max_extension)
 
     if fartopo_path is not None:
-        len_inner_faces_path = f'{tmpdir}len_inner_faces.txt'
+        len_inner_faces_path = f'{tmpdir}len_inner_faces.txt'  # replace with option to pass path to meshes
         if os.path.exists(len_inner_faces_path):
             logging.info(f"- Reading existing stacked mesh file")
             last_ext = max({ext: res for ext, res in extres.items() if ext < max_extension}.keys())

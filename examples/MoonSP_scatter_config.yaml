@@ -1,0 +1,21 @@
+base_resolution: 120
+max_extension: 350e3
+extres: {20e3: 80, 60e3: 120, 100e3: 240, 300e3: 480}
+root: "./"
+indir: "./aux/"
+dem_path: "/explore/nobackup/people/mkbarker/GCD/grid/20mpp/v4/public/final/LDEM_80S_40MPP_ADJ.TIF"
+#fartopo_path: 'same_dem'
+outdir: "./out/"
+tmpdir: "./tmp/"
+start_time: "2026-08-30 15:00:00.0" # datetime.datetime(2026, 1, 30, hour=15)
+end_time: "2026-09-21 17:00:00.0" # datetime.datetime(2026, 1, 30, hour=17)
+time_step_hours: 168
+bbox_roi: [-65e3, -20e3, -25e3, 20e3] # minx, miny, maxx, maxy
+download_kernels: false
+point_source: false
+extsource_coord: "./aux/coordflux_100pts_outline33_centerlast_R1_F1_stdlimbdark.txt"
+irradiance_only: true
+#azi_ele_path: "azi_ele_list.in"
+scatter: false
+ffmat_path: "./out/{{ siteid }}/FF_0.05_3.0_1e-2.bin"
+Vst_path: "./out/{{ siteid }}/gerlache_verts_stereo_0.05_3.0.npy"

@@ -2,9 +2,29 @@ import pandas as pd
 import xarray as xr
 # import datetime
 import numpy as np
+from functools import lru_cache
 
+@lru_cache(maxsize=None)
+def _load_flux_table(filin):
+    df = pd.read_csv(filin, sep=r"\s+", comment=";", skiprows=142, header=None)
+    df.columns = ["Wavelength (nm)","Irr Mar 25-29","Irr Mar 30-Apr 4","Irr Apr 10-16","Source"]
+    df = df.loc[:, ["Wavelength (nm)", "Irr Apr 10-16"]].set_index("Wavelength (nm)")
+    # store as numpy for cheap math later
+    wl = df.index.to_numpy()
+    vals = df.iloc[:,0].to_numpy(dtype=np.float64)
+    step = float(np.nanmean(np.diff(wl)))
+    return wl, vals, step
 
-def get_Fsun(filin, epoch, wavelength=None,  ):
+def get_Fsun(filin, epoch, wavelength=None):
+    wl, vals, step = _load_flux_table(filin)
+    if wavelength is None:
+        return float((vals * step).sum())
+    w = np.atleast_1d(wavelength)
+    m = (wl >= w.min()) & (wl <= w.max()) if w.size > 1 else (wl == w.item())
+    return float((vals[m] * step).sum())
+
+# OLD STUFF BELOW
+def get_Fsun3(filin, epoch, wavelength=None,  ):
 
     df = pd.read_csv(filin, sep='\s+', comment=';', skiprows=142, header=None)
     df.columns = ["Wavelength (nm)",  "Irradiance Mar 25-29",  "Irradiance Mar 30-Apr 4",

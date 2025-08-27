@@ -21,7 +21,8 @@ We install CGAL for our ray-tracing needs.
 - Modify the setup.py file and add the path to the `include` dirs of CGAL and Boost  
 - From inside the `py-cgal-aabb` folder:  
 `python setup.py build_ext --inplace` (optional)\
-`pip install .`  
+`python setup.py install`\
+(alternatively, try `pip install .` but you might get a "Cython not found" error)
 
 # Quickstart and installation testing
 Download the data required for running the examples running in the `examples` folder:

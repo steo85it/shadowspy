@@ -4,8 +4,9 @@ import os
 import sys
 from importlib import resources
 import yaml
-
-from src.shadowspy.utilities import load_config_yaml
+from jinja2 import Template
+from pathlib import Path
+# from shadowspy.utilities import load_config_yaml
 
 logging.basicConfig(level=logging.INFO)
 
@@ -24,9 +25,13 @@ class ShSpOpt:
             self.initialized = True
 
     def setup_config(self, **kwargs):
-        # Load default configuration
-        with resources.open_text('src', 'default_config.yaml') as f:
+        # # Load default configuration
+        # with resources.open_text(__package__, 'default_config.yaml') as f:
+        #     default_config = yaml.safe_load(f)
+        cfg_path = Path(__file__).parent / "default_config.yaml"
+        with cfg_path.open("r") as f:
             default_config = yaml.safe_load(f)
+
         self.update_config(**default_config)
 
         # Handling command-line arguments to override
@@ -42,7 +47,7 @@ class ShSpOpt:
         # Optionally load user configuration if specified
         config_file = kwargs.get('config_file', None) or getattr(self, 'config_file', None)
         if config_file:
-            user_config = self.load_config_yaml(config_file)
+            user_config = self.load_config_yaml(config_file, args)
             self.update_config(**user_config)
 
         # Display final configuration
@@ -58,9 +63,20 @@ class ShSpOpt:
         """Method to load additional .wkt configurations if applicable."""
         pass
 
-    def load_config_yaml(self, path):
-        with open(path, 'r') as file:
-            return yaml.safe_load(file)
+    def load_config_yaml(self, path, args):
+        # Step 1: Load the YAML content
+        with open(path, "r") as f:
+            template_content = f.read()
+
+        # Step 2: Load the variables section from the YAML (initial parsing)
+        variables_section = yaml.safe_load(template_content) #.get('variables', {})
+        # Step 3: Render the template using Jinja2 with the extracted variables
+        template = Template(template_content)
+        rendered_content = template.render(variables=variables_section, siteid=args.siteid)
+        # Step 4: Load the final YAML after rendering the variables
+        config = yaml.safe_load(rendered_content)
+
+        return config
 
     def display(self):
         print("Current Configuration:", self.__dict__)

@@ -6,10 +6,10 @@ import time
 import xarray as xr
 from tqdm import tqdm
 
-from src.mesh_operations import mesh_generation
-from src.mesh_operations.merge_overlapping import merge_inout
-from src.mesh_operations import load_mesh
-from src.mesh_operations.split_merged import split_merged
+from mesh_operations import mesh_generation
+from mesh_operations.merge_overlapping import merge_inout
+from mesh_operations import load_mesh
+from mesh_operations.split_merged import split_merged
 
 
 def prepare_inner_outer_mesh(tif_path, fartopo_path, extres, max_extension, Rb, tmpdir, meshpath, ext):

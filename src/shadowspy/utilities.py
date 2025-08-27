@@ -1,6 +1,7 @@
 import json
 import time
 import yaml
+import numpy as np
 
 def run_log(logpath = None, **kwargs):
 
@@ -20,3 +21,12 @@ def load_config_yaml(file_path):
         config = yaml.safe_load(file)  # safe_load prevents execution of arbitrary code
     return config
 
+def promote_to_array_if_necessary(value, shape, dtype=None):
+    if isinstance(value, (int, float)):
+        return np.full(shape, value, dtype)
+    elif isinstance(value, np.ndarray):
+        if value.shape != shape:
+            raise ValueError('invalid shape')
+        return value
+    else:
+        raise TypeError(f'bad type: {type(value)}')

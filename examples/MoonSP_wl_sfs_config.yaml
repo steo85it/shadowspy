@@ -2,8 +2,8 @@ root: "./"
 indir: "./aux/"
 base_resolution: 5
 max_extension: 350e3
-extres: {20e3: 40, 60e3: 80, 100e3: 240, 300e3: 480}
-dem_path: "{{ variables.indir }}ldem/{{ siteid }}_5mpp.tif"  #
+extres: {25e3: 40, 60e3: 80, 100e3: 240, 300e3: 480}
+dem_path: "{{ variables.indir }}sfs/{{ siteid }}_005.tif"  #
 fartopo_path: "/explore/nobackup/people/mkbarker/GCD/grid/20mpp/v4/public/final/LDEM_80S_40MPP_ADJ.TIF"
 outdir: "./out/uv_point_summer/{{ siteid }}/"
 tmpdir: "./tmp/uv_summer/{{ siteid }}/"

@@ -5,8 +5,9 @@ import meshio
 import numpy as np
 import rioxarray as rio
 
-from src.shadowspy.coord_tools import unproject_stereographic, sph2cart
-from src.mesh_operations.mesh_tools import get_uniform_triangle_mesh
+from shadowspy.coord_tools import unproject_stereographic, sph2cart
+from mesh_operations.mesh_tools import get_uniform_triangle_mesh
+from mesh_operations.mesh_utils import remove_degenerate_faces
 
 
 def generate_square_with_hole_vertices(outer_square_size=10, hole_size=2, spacing=1):
@@ -40,33 +41,71 @@ def generate_square_with_hole_vertices(outer_square_size=10, hole_size=2, spacin
 def stack_meshes(meshes):
     """
     Stacks multiple meshes into a single mesh.
-
-    Args:
-    - meshes: A list of tuples, where each tuple is (vertices, faces) for a mesh.
-
-    Returns:
-    - combined_vertices: The combined vertices array for all meshes.
-    - combined_faces: The combined and correctly indexed faces array for all meshes.
+    meshes: list of (vertices, faces). Faces may be (N,3), (3N,), or (N,) of 3-lists.
+    Returns (combined_vertices, combined_faces) with dtypes float32 / int32.
     """
-    all_vertices = []
-    all_faces = []
-    vertex_offset = 0
 
-    for vertices, faces in meshes:
-        # Append the current vertices
-        all_vertices.append(vertices)
+    if not meshes:
+        return (np.empty((0, 3), np.float32), np.empty((0, 3), np.int32))
 
-        # Adjust faces indices and append
-        adjusted_faces = faces + vertex_offset
-        all_faces.append(adjusted_faces)
+    def _normalize_faces(F_in):
+        F = np.asarray(F_in)
+        # Case 1: (N,3)
+        if F.ndim == 2 and F.shape[1] == 3:
+            return F.astype(np.int32, copy=False)
+        # Case 2: flat 1D (3N,)
+        if F.ndim == 1 and F.dtype != object:
+            if F.size % 3 != 0:
+                raise ValueError(f"Faces 1D array length {F.size} not divisible by 3.")
+            return F.reshape(-1, 3).astype(np.int32, copy=False)
+        # Case 3: object array (N,) of triplets → vstack
+        if F.ndim == 1 and F.dtype == object:
+            try:
+                F2 = np.vstack([np.asarray(row, dtype=np.int64) for row in F])
+            except Exception as e:
+                raise ValueError("Faces appear to be an object array but could not be "
+                                 "stacked into (N,3). Inspect the mesh providing these faces.") from e
+            if F2.shape[1] != 3:
+                raise ValueError(f"Faces object array stacked to shape {F2.shape}, expected (N,3).")
+            return F2.astype(np.int32, copy=False)
+        raise ValueError(f"Unsupported faces shape {F.shape} / dtype {F.dtype}")
 
-        # Update the offset for the next mesh
-        vertex_offset += vertices.shape[0]
+    def _normalize_vertices(V_in, want_cols=None):
+        V = np.asarray(V_in)
+        if V.ndim != 2:
+            raise ValueError(f"Vertices must be 2D, got shape {V.shape}.")
+        if want_cols is not None and V.shape[1] != want_cols:
+            raise ValueError(f"Inconsistent vertex dimensions: expected {want_cols}, got {V.shape[1]}.")
+        return V.astype(np.float32, copy=False)
 
-    combined_vertices = np.vstack(all_vertices)
-    combined_faces = np.vstack(all_faces)
+    # First normalize and collect; also compute totals
+    norm = []
+    vcols = None
+    nV_total = 0
+    nF_total = 0
+    for V_in, F_in in meshes:
+        V = _normalize_vertices(V_in, want_cols=vcols)
+        vcols = V.shape[1] if vcols is None else vcols
+        F = _normalize_faces(F_in)
+        norm.append((V, F))
+        nV_total += int(V.shape[0])
+        nF_total += int(F.shape[0])
 
-    return combined_vertices, combined_faces
+    # Allocate outputs once
+    Vout = np.empty((nV_total, vcols), dtype=np.float32, order='C')
+    Fout = np.empty((nF_total, 3),     dtype=np.int32,   order='C')
+
+    # Fill with offsets
+    voff = 0
+    foff = 0
+    for V, F in norm:
+        nv, nf = V.shape[0], F.shape[0]
+        Vout[voff:voff+nv] = V
+        Fout[foff:foff+nf] = F + voff
+        voff += nv
+        foff += nf
+
+    return Vout, Fout
 
 def generate_terrain_mesh(x_range, y_range, dx):
     """
@@ -130,6 +169,7 @@ def make(base_resolution, decimation_rates, tif_path, out_path, mesh_ext='.xmf',
                 mesh = meshio.Mesh(V_cart, [('triangle', mesh_versions[decimation]['F'])])
                 # fout = f"in/shackleton_{np.product(mesh_versions[decimation]['shape'])*2}.ply"
                 fout = f"{out_path}b{base_resolution}_dn{decimation}{mesh_ext}"
+
             else:
                 mesh = meshio.Mesh(mesh_versions[decimation]['V'], [('triangle', mesh_versions[decimation]['F'])])
                 # fout = f"in/shackleton_{np.product(mesh_versions[decimation]['shape'])*2}_st.ply"
@@ -142,3 +182,18 @@ def make(base_resolution, decimation_rates, tif_path, out_path, mesh_ext='.xmf',
     logging.debug(f"(decimation,num_faces):\n{[(dec, len(mesh['F'])) for dec, mesh in mesh_versions.items()]}")
 
     return fout
+
+
+if __name__ == '__main__':
+    # 1D flat faces -> ok
+    F_flat = np.arange(12)  # 4 triangles
+    V = np.zeros((10, 3))
+    stack_meshes([(V, F_flat)])  # should succeed
+
+    # object array of triplets -> ok
+    F_obj = np.array([[0, 1, 2], [2, 3, 4], [4, 5, 6]], dtype=object)
+    stack_meshes([(V, F_obj)])  # should succeed
+
+    # proper (N,3) -> ok
+    F_ok = np.array([[0, 1, 2], [2, 3, 4], [4, 5, 6]], dtype=np.int32)
+    stack_meshes([(V, F_ok)])  # should succeed

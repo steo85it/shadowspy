@@ -1,7 +1,7 @@
 import numpy as np
 import meshio
 
-from src.shadowspy.shape import get_centroids as get_cents, get_surface_normals
+from shadowspy.shape import get_centroids as get_cents, get_surface_normals
 
 
 def filter_faces(vertices_mask, faces):
@@ -23,7 +23,22 @@ def filter_faces(vertices_mask, faces):
 
     return filtered_faces
 
+def remove_degenerate_faces(V, F, eps=1e-10):
+    v1, v2, v3 = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    areas = np.linalg.norm(np.cross(v2 - v1, v3 - v1), axis=1) / 2
+    valid_faces = areas > eps  # Threshold for zero-area faces
+    print(f"- Removed {len(F)-sum(valid_faces)} degenerate faces. ({len(F)}/{sum(valid_faces)})")
+    return F[valid_faces]
+
 def remove_faces_with_vertices(faces, vertices_to_remove):
+    faces = np.asarray(faces, dtype=np.int32, order='C')
+    vmask = np.zeros(int(faces.max()) + 1, dtype=bool)
+    idx = np.asarray(vertices_to_remove, dtype=faces.dtype)
+    vmask[idx] = True
+    keep = (vmask[faces].sum(axis=1) < 3)  # drop faces with all 3 verts in the set
+    return faces[keep]
+
+def remove_faces_with_vertices_slow(faces, vertices_to_remove):
     # Convert vertices_to_remove to a set for faster lookup
     vertices_to_remove_set = set(vertices_to_remove)
 
@@ -62,15 +77,20 @@ def remove_inner_from_outer(outer_vertices, inner_bbox):
 
 
 def import_mesh(mesh_path, get_normals=False, get_centroids=False):
-    # use meshio to import obj shapefile
-    mesh = meshio.read(
-        filename=mesh_path,  # string, os.PathLike, or a buffer/open file
-    )
 
-    V = mesh.points
-    # V = V.astype(np.float32)  # embree is anyway single precision # destroys normals
-    V = V[:, :3]
-    F = mesh.cells[0].data
+    mesh = meshio.read(filename=mesh_path)
+    V = mesh.points[:, :3]
+    # pick the 'triangle' block explicitly
+    tri_block = next((c for c in mesh.cells if c.type == "triangle"), None)
+    if tri_block is None:
+        raise ValueError("No triangle cells found in mesh")
+    F = tri_block.data.astype(np.int32, copy=False)
+
+    # V to native little endian
+    def _native_f8(a):
+        return np.ascontiguousarray(np.asarray(a, dtype=np.float64))
+
+    V = _native_f8(V)
 
     if (not get_normals) and (not get_centroids):
         return V, F

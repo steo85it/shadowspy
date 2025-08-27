@@ -1,36 +1,30 @@
 import logging
 import os
+import time
+
+import sys
 from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from mesh_operations.mesh_utils import remove_degenerate_faces
+
 # from line_profiler_pycharm import profile
 
-RAYTRACING_BACKEND = 'cgal' #'embree' #
-RAYTRACING_BACKEND = RAYTRACING_BACKEND.lower()
-if RAYTRACING_BACKEND == 'cgal':
-    from src.shadowspy.shape import CgalTrimeshShapeModel as MyTrimeshShapeModel
-elif RAYTRACING_BACKEND == 'embree':
-    try:
-        import embree
-    except:
-        logging.error("* You need to add embree_vars to the PATH to use embree")
-        exit()
-    from src.shadowspy.shape import EmbreeTrimeshShapeModel as MyTrimeshShapeModel
-else:
-    raise ValueError('RAYTRACING_BACKEND should be one of: "cgal", "embree"')
-
-from src.shadowspy.coord_tools import cart2sph, azimuth_elevation_to_cartesian, map_projection_to_azimuth
-from src.mesh_operations.mesh_utils import import_mesh
-from src.mesh_operations.mesh_tools import crop_mesh
-from src.shadowspy.spice_util import get_sourcevec
+from shadowspy.coord_tools import cart2sph, azimuth_elevation_to_cartesian, map_projection_to_azimuth
+from mesh_operations.mesh_utils import import_mesh
+from mesh_operations.mesh_tools import crop_mesh
+from shadowspy.spice_util import get_sourcevec
 import xarray as xr
 from rasterio.enums import Resampling
 
-from src.shadowspy.photometry import mmpf_mh_boyd2017lpsc
-from src.shadowspy.math_util import angle_btw
+from shadowspy.photometry import mmpf_mh_boyd2017lpsc
+from shadowspy.math_util import angle_btw
+from shadowspy.flux_util import get_Fsun
+from shadowspy.shape import get_centroids as get_cents, get_surface_normals
+from mesh_operations.plotting import rasterize_with_raytracing
 
 
 def plot3d(mesh_path, var_to_plot, center='P'):
@@ -74,9 +68,11 @@ def extended_source(sun_vecs, extsource_coord):
     return sun_veccs + Vs * extsun_tiled[:, 0][:, np.newaxis] * Rs + Ws * extsun_tiled[:, 1][:, np.newaxis] * Rs
 
 #@profile
-def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN', inc_flux=1361., center='P',
-                     point=True, basemesh=None, return_irradiance=False, azi_ele_deg=None, extsource_coord=None,
-                     crs=None):
+def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN',  point=True, scatter=False,
+                     inc_flux=1361., frame='MOON_ME', observer='MOON',
+                     center='P', basemesh=None, return_irradiance=False, azi_ele_deg=None, extsource_coord=None,
+                     crs=None, ffmat_path=None):
+
     if center == 'V':
         C = shape_model.V
         N = shape_model.VN
@@ -90,7 +86,7 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
     if azi_ele_deg == None:
         point_source_vecs = get_sourcevec(utc0=utc0, stepet=1, et_linspace=np.linspace(0, 1, 1),
                                    path_to_furnsh=path_to_furnsh,
-                                   target=source, frame='MOON_ME', observer='MOON')#*1e3
+                                   target=source, frame=frame, observer=observer)#*1e3
     else:
         # getting float lat/lon to pass
         latitude_deg, longitude_deg = np.rad2deg(np.vstack(cart2sph(np.mean(C, axis=0)))[1:])
@@ -98,12 +94,6 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
         longitude_deg = longitude_deg[0]
 
         logging.warning("- Using source_distance = 1.5e8 km ~ 1AU. Adapt for other bodies.")
-        # proj_wkt = 'PROJCS["WGS 84 / Antarctic Polar Stereographic",GEOGCS["WGS 84",DATUM["WGS_1984",
-        # SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],
-        # PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],
-        # AUTHORITY["EPSG","4326"]],PROJECTION["Polar_Stereographic"],PARAMETER["latitude_of_origin",-90],
-        # PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],
-        # PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AUTHORITY["EPSG","3031"]]'
 
         # convert direction to local azimuth to retrieve consistent sun direction
         if crs is not None:
@@ -139,12 +129,18 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
 
         sourcedir = source_vecs / np.linalg.norm(source_vecs, axis=1)[:, np.newaxis]
 
-    if center == 'P':
-        E = shape_model.get_direct_irradiance(inc_flux, sourcedir, basemesh=basemesh)
-    elif center == 'V':
-        E = shape_model.get_direct_irradiance_at_vertices(inc_flux, sourcedir, basemesh=basemesh)
+    E = shape_model.get_direct_irradiance(inc_flux, sourcedir, basemesh=basemesh, center=center)
+
+    if scatter:
+        FF_path = "/panfs/ccds02/nobackup/people/sberton2/habnich/shadowspy_dev/examples/out/DG1/FF_0.05_3.0_1e-2.bin"
+        if azi_ele_deg is not None:
+            utc0 = np.array(['2026 AUG 01 00:00:00.00'])
+        D = sourcedir
+        Qrefl, QIR = irradiance_with_scattered_flux(ffmat_path, D, E)
+        E = E + Qrefl + QIR
 
     if return_irradiance:
+        print("shape E out", E.shape)
         return E
 
     # # get Moon centered cartesian coordinates of the Sun at date and correct to hr faces centers
@@ -163,116 +159,138 @@ def get_flux_at_date(shape_model, utc0, path_to_furnsh, albedo1=0.1, source='SUN
     # # compute radiance out of scatterer
     return E * albedo1 * photom1 * np.pi / inc_flux
 
-#@profile
-def render_at_date(meshes, path_to_furnsh, epo_utc=None, center='P', crs=None, dem_mask=None, source='SUN',
-                   inc_flux=1361, basemesh_path=None, show=False, point=True, azi_ele_deg=None, return_irradiance=False,
-                   extsource_coord=None, **kwargs):
+def irradiance_with_scattered_flux(FF_path, D, E0):
+    from flux.compressed_form_factors import CompressedFormFactorMatrix
+    from scipy.constants import Stefan_Boltzmann as sigmaSB
+    from flux.thermal import PccThermalModel1D
+    from flux.model import update_incoming_radiances
+
+    # if full FF is passed and scattered flux is requested, then...
+    z = 0 #np.linspace(0, 3e-3, 31)
+    FF = CompressedFormFactorMatrix.from_file(FF_path)
+    shape_model = FF.shape_model
+
+    rho=0.11
+    emiss=0.95
+    Fgeotherm = 0.005
+    ti = 120
+    rhoc = 9.6e5
+
+    # get the previous fluxes and surface temperature
+    Qrefl_prev = 0
+    QIR_prev = 0
+    Q0 = (1 - rho) * E0 + Fgeotherm
+    T0 = 110
+    Tsurf_prev = (Q0 / (sigmaSB * emiss)) ** 0.25
+
+    emiss = 0 # PccThermalModel1D(z, T0, ti, rhoc, emiss, Fgeotherm, Q0, Tsurf_prev, bcond='Q')
+
+    # get the next reflected and infrared fluxes
+    Qrefl, QIR = update_incoming_radiances(
+        FF, E0, rho, emiss, Qrefl=Qrefl_prev,
+        QIR=QIR_prev, Tsurf=Tsurf_prev)
+
+    return Qrefl, QIR
+
+def render_at_date(
+        # — all the per‐epoch args —
+        P_st,
+        # N_st,
+        # P,
+        # N,
+        # dem_path,
+        # meshes,
+        shape_model,
+        shape_model_st,
+        basemesh,
+        path_to_furnsh,
+        source,
+        observer,
+        frame,
+        inc_flux,
+        extsource_coord,
+        center='P',
+        return_irradiance=False,
+        epo_utc=None,
+        azi_ele_deg=None,
+        point=True,
+        scatter=False,
+        crs=None,
+        show=False,
+        # — catch everything else —
+        **kwargs
+    ):
     """
-    Render terrain at epoch
-    @param meshes:
-    @param epo_utc:
-    @param path_to_furnsh:
-    @param center:
-    @param crs:
-    @param dem_mask: GeoDataFrame, polygon of region to crop
-    @param source:
-    @param inc_flux:
-    @param basemesh_path: str, full inner+outer mesh path (inner part should be identical to meshes)
-    @param show:
-    @param point: Bool, use point or extended (if False) source
-    @param azi_ele_deg:
-    @param return_irradiance:
-    @return:
+    Render terrain at one epoch, using prebuilt shape_models & geometry.
     """
 
-    date_illum_spice = []
-
+    # ─── 1) format your date strings ────────────────────────────────
     if azi_ele_deg is None:
-        input_YYMMGGHHMMSS = datetime.strptime(epo_utc.strip(), '%Y-%m-%d %H:%M:%S.%f')
-        format_code = '%Y%m%d%H%M%S'
-        date_illum_str = input_YYMMGGHHMMSS.strftime(format_code)
-        format_code = '%Y %m %d %H:%M:%S'
-        date_illum_spice = input_YYMMGGHHMMSS.strftime(format_code)
+        dt = datetime.strptime(epo_utc.strip(), '%Y-%m-%d %H:%M:%S.%f')
+        date_illum_str   = dt.strftime('%Y%m%d%H%M%S')
+        date_illum_spice = dt.strftime('%Y %m %d %H:%M:%S')
     else:
-        date_illum_str = None
+        date_illum_str   = None
         date_illum_spice = None
 
-    # check if DEM needs to be cropped (e.g., to fit image)
-    if isinstance(dem_mask, gpd.GeoDataFrame):
-
-        # match image/mask and mesh crs
-        dem_mask.to_crs(crs, inplace=True)
-
-        print(f"- Cropping DEM to {dem_mask}")
-        meshes_cropped = {}
-        meshes_path = ('/').join(meshes['stereo'].split('/')[:-1])
-        meshes_cropped['stereo'] = f"{meshes_path}/cropped_st.vtk"
-        meshes_cropped['cart'] = f"{meshes_path}/cropped.vtk"
-        crop_mesh(dem_mask, meshes, mask=dem_mask, meshes_cropped=meshes_cropped)
-        
-        V_st, F_st, N_st, P_st = import_mesh(f"{meshes_cropped['stereo']}", get_normals=True, get_centroids=True)
-        V, F, N, P = import_mesh(meshes_cropped['cart'], get_normals=True, get_centroids=True)
-    else:
-        # import hr meshes and build shape_models
-        V_st, F_st, N_st, P_st = import_mesh(f"{meshes['stereo']}", get_normals=True, get_centroids=True)
-        V, F, N, P = import_mesh(f"{meshes['cart']}", get_normals=True, get_centroids=True)
-        meshes_cropped = meshes
-
-    shape_model = MyTrimeshShapeModel(V, F, N)
-
-    if basemesh_path != None:
-        V_ds, F_ds, N_ds, P_ds = import_mesh(basemesh_path, get_normals=True, get_centroids=True)
-        basemesh = MyTrimeshShapeModel(V_ds, F_ds, N_ds)
-    else:
-        basemesh = None
-
-    # get flux at observer (would be good to just ask for F/V overlapping with meas image)
-    flux_at_obs = get_flux_at_date(shape_model, date_illum_spice, path_to_furnsh=path_to_furnsh, source=source,
-                                   inc_flux=inc_flux, center=center, point=point, basemesh=basemesh,
-                                   return_irradiance=return_irradiance, azi_ele_deg=azi_ele_deg,
-                                   extsource_coord=extsource_coord, crs=crs)
-
-    if show:
-        # plot3d(mesh_path=f"{meshes['cart']}", var_to_plot=flux_at_obs)
-        plot3d(mesh_path=meshes_cropped['stereo'], var_to_plot=flux_at_obs)
-
-    # rasterize results from mesh
-    # ---------------------------
     if center == 'V':
-        flux_df = pd.DataFrame(np.vstack([V_st[:, 0].ravel(), V_st[:, 1].ravel(), flux_at_obs]).T,
-                               columns=['x', 'y', 'flux'])
-    elif center == 'P':
-        flux_df = pd.DataFrame(np.vstack([P_st[:, 0].ravel(), P_st[:, 1].ravel(), flux_at_obs]).T,
-                               columns=['x', 'y', 'flux'])
+        assert "V_st" in kwargs, "V_st must be provided if center='V'."
+        V_st = kwargs["V_st"]
 
-    duplicates = flux_df.duplicated(subset=['y', 'x'], keep='first')
-    if len(flux_df[duplicates]) > 0:
-        logging.warning(f"- render_at_date is dropping {len(flux_df[duplicates])/len(flux_df)*100.}% duplicated rows. Check.")
-        print(flux_df[duplicates].sort_values(by=['x', 'y']))
-        flux_df = flux_df[~duplicates]
+    # ─── 2) compute flux at this epoch ─────────────────────────────
+    print(f"Computing flux at {date_illum_str}")
+    flux_at_obs = get_flux_at_date(
+        shape_model=shape_model,
+        utc0=date_illum_spice,
+        path_to_furnsh=path_to_furnsh,
+        source=source,
+        observer=observer,
+        frame=frame,
+        inc_flux=inc_flux,
+        center=center,
+        point=point,
+        scatter=scatter,
+        basemesh=basemesh,
+        return_irradiance=return_irradiance,
+        azi_ele_deg=azi_ele_deg,
+        extsource_coord=extsource_coord,
+        crs=crs
+    )
 
-    flux_df = flux_df.set_index(['y', 'x'], verify_integrity=True)
-    ds = flux_df.to_xarray()
+    # ─── 3) rasterize ───────────────────────────────────────────────
+    if scatter:
+        # uses shape_model_st under the hood
+        ds = rasterize_with_raytracing({'flux': flux_at_obs}, shape_model_st)
+    else:
+        # build a tiny DataFrame of (x,y,flux)
+        coords = V_st if center=='V' else P_st
+        coords = np.ascontiguousarray(np.asarray(coords, dtype=np.float64))
+        # flux = np.ascontiguousarray(np.asarray(flux_at_obs, dtype=np.float64))
 
-    if crs != None:
-        # assign crs
-        img_crs = crs
-        ds.rio.write_crs(img_crs, inplace=True)
+        df = pd.DataFrame({
+            'x': coords[:,0],
+            'y': coords[:,1],
+            'flux': flux_at_obs
+        })
 
-    # ds.flux.plot(robust=True)
-    # plt.show()
+        # drop duplicates
+        df = df[~df.duplicated(subset=['x','y'])]
+        df = df.set_index(['y','x'], verify_integrity=True)
 
-    # interpolate nans
-    ds['x'] = ds.x * 1e3
-    ds['y'] = ds.y * 1e3
+        ds = df.to_xarray()
+
+    # assign CRS & convert to km
+    if crs is not None:
+        ds.rio.write_crs(crs, inplace=True)
+    ds = ds.assign_coords(x = ds.x*1e3, y = ds.y*1e3)
+
+    # fill holes by linear interpolation
     dsi = ds.interpolate_na(dim="x").interpolate_na(dim="y")
 
     return dsi, date_illum_str
 
 
-def irradiance_at_date(meshes, path_to_furnsh, center='P', crs=None, dem_mask=None, source='SUN',
-                       inc_flux=1361, basemesh_path=None, show=False, point=True, extsource_coord=None,
-                       epo_utc=None, azi_ele_deg=None, **kwargs):
+def irradiance_at_date(**kwargs):
     """
     Get terrain irradiance at epoch
     :param inc_flux:
@@ -290,15 +308,13 @@ def irradiance_at_date(meshes, path_to_furnsh, center='P', crs=None, dem_mask=No
     :param return_irradiance: bool, must be True
     :return:
     """
-    # if not return_irradiance:
-    #     logging.error("* Either set return_irradiance=True, or else call render_at_date.")
 
-    return render_at_date(meshes, path_to_furnsh, epo_utc, center, crs, dem_mask, source, inc_flux, basemesh_path, show,
-                          point, azi_ele_deg=azi_ele_deg, return_irradiance=True, extsource_coord=extsource_coord)
+    return render_at_date(return_irradiance=True, **kwargs)
 
 
 def render_match_image(pdir, meshes, path_to_furnsh, img_name, epo_utc,
-                       meas_path, outdir=None, center='P', basemesh_path=None, point=True, **kwargs):
+                       meas_path, outdir=None, center='P', basemesh_path=None, point=True, scatter=False,
+                       **kwargs):
     """
     Render input terrain at epoch and match observed flux to input image
     :param pdir:
@@ -339,7 +355,8 @@ def render_match_image(pdir, meshes, path_to_furnsh, img_name, epo_utc,
 
     # get full rendering at date
     dsi, date_illum_str = render_at_date(meshes, path_to_furnsh, epo_utc, center=center, crs=meas.rio.crs,
-                                         dem_mask=meas_outer_poly, basemesh_path=basemesh_path, point=point)
+                                         dem_mask=meas_outer_poly, basemesh_path=basemesh_path, point=point,
+                                         scatter=False)
 
     # interp to measured image coordinates
     rendering = dsi.rio.reproject_match(meas, Resampling=Resampling.bilinear,
@@ -377,9 +394,19 @@ def render_match_image(pdir, meshes, path_to_furnsh, img_name, epo_utc,
         
     # save simulated image to raster
     outraster = f"{outdir}{img_name}_{date_illum_str}.tif"
-    rendering.transpose('y', 'x').rio.to_raster(outraster)
+    rendering.transpose('y', 'x').rio.to_raster(outraster, compress='zstd')
 
     print(f"- Flux for {img_name} saved to {outraster} (xy resolution = {rendering.rio.resolution()}mpp). "
           f"Normalized by {exposure_factor}.")
+
+    # after writing:
+    try:
+        rendering.close()
+    except Exception:
+        pass
+    try:
+        meas.close()
+    except Exception:
+        pass
 
     return outraster

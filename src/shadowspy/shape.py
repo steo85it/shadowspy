@@ -41,8 +41,19 @@ def get_surface_normals_and_face_areas(V, F):
     N = C/C_norms[:, np.newaxis]
     A = C_norms/2
 
+    # norms = np.linalg.norm(N, axis=1)
+    # assert np.allclose(norms, 1.0), "Normals are not unit length!"
+
     return N, A
 
+def get_vertex_normals_fast(V, F):
+    tri_normals = get_surface_normals(V, F)
+    vertex_normals = np.zeros_like(V, dtype=tri_normals.dtype)
+    # counts via bincount instead of unique
+    counts = np.bincount(F.ravel(), minlength=len(V))
+    np.add.at(vertex_normals, F.ravel(), np.repeat(tri_normals, 3, axis=0))
+    vertex_normals /= counts[:, None]
+    return vertex_normals
 
 def get_vertex_normals(V, F):
 
@@ -231,122 +242,116 @@ class TrimeshShapeModel(ShapeModel):
         '''
         return self._is_occluded(I, D)
 
-    def get_direct_irradiance(self, F0, Dsun, basemesh=None, eps=None):
-        '''Compute the insolation from the sun.
+    # def get_direct_irradiance(self, F0, Dsun, basemesh=None, eps=None):
+    #     '''Compute the insolation from the sun.
+    #
+    #     Parameters
+    #     ----------
+    #     F0: float
+    #         The solar constant. [W/m^2]
+    #
+    #     Dsun: numpy.ndarray
+    #         A length 3 vector or Mx3 array of sun directions: vectors
+    #         indicating the direction of the sun in world coordinates.
+    #
+    #     basemesh: same as self, optional
+    #         mesh used to check (Sun, light source) visibility at "self.cells";
+    #         it would usually cover a larger area than "self".
+    #
+    #     Returns
+    #     -------
+    #     E: numpy.ndarray
+    #         A vector of length self.num_faces or an array of size
+    #         M x self.num_faces, where M is the number of sun
+    #         directions.
+    #
+    #     '''
+    #     # Determine which rays escaped (i.e., can see the sun)
+    #     if basemesh is None:
+    #         I = ~self.is_occluded(np.arange(self.num_faces), Dsun.copy(order='C'))
+    #     else:
+    #         I = ~basemesh.is_occluded(np.arange(self.num_faces), Dsun.copy(order='C'))
+    #
+    #     # I = basemesh.intersect1_2d(basemesh.P.astype('double'), (Dsun - basemesh.P).astype('double')) == -1
+    #
+    #     # Compute the direct irradiance
+    #     if Dsun.ndim == 1:
+    #         E = np.zeros(self.num_faces, dtype=self.dtype)
+    #         E[I] = F0*np.maximum(0, self.N[I]@Dsun)
+    #     elif (Dsun.ndim == 2) & (Dsun.shape[0] == self.num_faces): # TODO check if useful and if it still works
+    #         if Dsun.shape[0] != self.num_faces:
+    #             raise ValueError('need Dsun.shape[0] == num_faces')
+    #         if Dsun.shape[1] != 3:
+    #             raise ValueError('need Dsun.shape[1] == 3 if Dsun.ndim == 2')
+    #         E = np.zeros(self.num_faces, dtype=self.dtype)
+    #         E[I] = F0*np.maximum(0, (self.N[I]*Dsun[I]).sum(1))
+    #     elif Dsun.ndim == 2:  # for discretized extended light source
+    #         if Dsun.shape[1] != 3:
+    #             raise ValueError('need Dsun.shape[1] == 3 if Dsun.ndim == 2')
+    #         E = self.N@Dsun.T
+    #         # E = np.einsum(self.N,[0,1],Dsun,[2,1]) # same as '@', easier to generalize if needed
+    #         if I.ndim < E.ndim:
+    #             I = I[:, np.newaxis]
+    #         E = np.where(I, E, 0)
+    #
+    #         # TODO, should np.sum(E) if extended Sun, else np.max(E) if taking max over time
+    #         # E = np.mean(F0)*np.maximum(0, np.sum(E,axis=1)/Dsun.shape[0]) # F0 varies by <1 W/m2 within discretized source
+    #         # print(E.shape)
+    #         # exit()
+    #         E = np.mean(F0)*np.maximum(0, np.mean(np.where(E > 0, E, 0), axis=1)) # F0 varies by <1 W/m2 within discretized source
+    #     else:
+    #         raise RuntimeError('Dsun.ndim > 2 not implemented yet')
+    #
+    #     return E
 
-        Parameters
-        ----------
-        F0: float
-            The solar constant. [W/m^2]
-
-        Dsun: numpy.ndarray
-            A length 3 vector or Mx3 array of sun directions: vectors
-            indicating the direction of the sun in world coordinates.
-
-        basemesh: same as self, optional
-            mesh used to check (Sun, light source) visibility at "self.cells";
-            it would usually cover a larger area than "self".
-
-        Returns
-        -------
-        E: numpy.ndarray
-            A vector of length self.num_faces or an array of size
-            M x self.num_faces, where M is the number of sun
-            directions.
-
-        '''
-        # Determine which rays escaped (i.e., can see the sun)
-        if basemesh is None:
-            I = ~self.is_occluded(np.arange(self.num_faces), Dsun.copy(order='C'))
+    def get_direct_irradiance(self, F0, Dsun, basemesh=None, eps=None, center='P'):
+        """
+        center: 'P' → face centroids & face normals
+                'V' → vertex positions & vertex normals
+        """
+        # pick sampling arrays
+        if center == 'P':
+            NX = self.N
+            M = self.P.shape[0]
+        elif center == 'V':
+            NX = self.VN
+            M = self.V.shape[0]
         else:
-            I = ~basemesh.is_occluded(np.arange(self.num_faces), Dsun.copy(order='C'))
+            raise ValueError("center must be 'P' or 'V'")
 
-        # I = basemesh.intersect1_2d(basemesh.P.astype('double'), (Dsun - basemesh.P).astype('double')) == -1
+        # occlusion (use outer scene as occluder if provided, but with our sampling points)
+        Iidx = np.arange(M, dtype=np.int64)
+        base_scene = None if basemesh is None else basemesh.scene
+        visible = ~self._is_occluded(Iidx, Dsun.copy(order='C'), center=center, basescene=base_scene, eps=eps)
 
-        # Compute the direct irradiance
+        # irradiance
         if Dsun.ndim == 1:
-            E = np.zeros(self.num_faces, dtype=self.dtype)
-            E[I] = F0*np.maximum(0, self.N[I]@Dsun)
-        elif (Dsun.ndim == 2) & (Dsun.shape[0] == self.num_faces): # TODO check if useful and if it still works
-            if Dsun.shape[0] != self.num_faces:
-                raise ValueError('need Dsun.shape[0] == num_faces')
-            if Dsun.shape[1] != 3:
-                raise ValueError('need Dsun.shape[1] == 3 if Dsun.ndim == 2')
-            E = np.zeros(self.num_faces, dtype=self.dtype)
-            E[I] = F0*np.maximum(0, (self.N[I]*Dsun[I]).sum(1))
-        elif Dsun.ndim == 2:  # for discretized extended light source
-            if Dsun.shape[1] != 3:
-                raise ValueError('need Dsun.shape[1] == 3 if Dsun.ndim == 2')
-            E = self.N@Dsun.T
-            # E = np.einsum(self.N,[0,1],Dsun,[2,1]) # same as '@', easier to generalize if needed
-            if I.ndim < E.ndim:
-                I = I[:, np.newaxis]
-            E = np.where(I, E, 0)
+            proj = NX @ Dsun  # (M,)
+            E = np.zeros(M, dtype=self.dtype)
+            E[visible] = np.asarray(F0).mean() * np.maximum(0.0, proj[visible])
+            return E
 
-            # TODO, should np.sum(E) if extended Sun, else np.max(E) if taking max over time
-            # E = np.mean(F0)*np.maximum(0, np.sum(E,axis=1)/Dsun.shape[0]) # F0 varies by <1 W/m2 within discretized source
-            # print(E.shape)
-            # exit()
-            E = np.mean(F0)*np.maximum(0, np.mean(np.where(E > 0, E, 0), axis=1)) # F0 varies by <1 W/m2 within discretized source
+        elif Dsun.ndim == 2 and Dsun.shape[1] == 3:
+            # extended source: project all dirs
+            proj = NX @ Dsun.T  # (M,K)
+            # apply visibility mask
+            if visible.ndim == 1:
+                visible = visible[:, None]
+            proj = np.where(visible, proj, 0.0)
+            # average only positive contributions (half-space clamp)
+            proj = np.maximum(0.0, proj)
+            E = np.asarray(F0).mean() * proj.mean(axis=1)
+            return E
+
+        elif Dsun.ndim == 2 and Dsun.shape[0] == M and Dsun.shape[1] == 3:
+            # per-sample directions (rare; keep for backward-compat)
+            proj = (NX * Dsun).sum(axis=1)  # (M,)
+            E = np.zeros(M, dtype=self.dtype)
+            E[visible] = np.asarray(F0).mean() * np.maximum(0.0, proj[visible])
+            return E
+
         else:
-            raise RuntimeError('Dsun.ndim > 2 not implemented yet')
-
-        return E
-
-    def get_direct_irradiance_at_vertices(self, F0, Dsun, basemesh=None, eps=None):
-        '''Compute the insolation from the sun.
-
-        Parameters
-        ----------
-        F0: float
-            The solar constant. [W/m^2]
-
-        Dsun: numpy.ndarray
-            A length 3 vector or Mx3 array of sun directions: vectors
-            indicating the direction of the sun in world coordinates.
-
-        basemesh: same as self, optional
-            mesh used to check (Sun, light source) visibility at "self.cells";
-            it would usually cover a larger area than "self".
-
-        Returns
-        -------
-        E: numpy.ndarray
-            A vector of length self.num_faces or an array of size
-            M x self.num_faces, where M is the number of sun
-            directions.
-
-        '''
-        # Determine which rays escaped (i.e., can see the sun)
-        if basemesh is None:
-            I = self.intersect1_2d(self.V.astype('double')-0.1*self.VN, (Dsun - self.V).astype('double')) == -1
-        else:
-            I = basemesh.intersect1_2d(self.V.astype('double')-0.1*self.VN, (Dsun - self.V).astype('double')) == -1
-
-        # Compute the direct irradiance
-        if Dsun.ndim == 1:
-            E = np.zeros(self.num_faces, dtype=self.dtype)
-            E[I] = F0*np.maximum(0, self.VN[I]@Dsun)
-        elif (Dsun.ndim == 2) & (Dsun.shape[0] == self.num_faces): # TODO check if useful and if it still works
-            if Dsun.shape[0] != self.num_faces:
-                raise ValueError('need Dsun.shape[0] == num_faces')
-            if Dsun.shape[1] != 3:
-                raise ValueError('need Dsun.shape[1] == 3 if Dsun.ndim == 2')
-            E = np.zeros(self.num_faces, dtype=self.dtype)
-            E[I] = F0*np.maximum(0, (self.VN[I]*Dsun[I]).sum(1))
-        elif Dsun.ndim == 2:  # for discretized extended light source
-            if Dsun.shape[1] != 3:
-                raise ValueError('need Dsun.shape[1] == 3 if Dsun.ndim == 2')
-            E = self.VN@Dsun.T
-            # E = np.einsum(self.N,[0,1],Dsun,[2,1]) # same as '@', easier to generalize if needed
-            if I.ndim < E.ndim:
-                I = I[:, np.newaxis]
-            E = np.where(I, E, 0)
-            E = np.mean(F0)*np.maximum(0, np.mean(np.where(E > 0, E, 0), axis=1)) # F0 varies by <1 W/m2 within discretized source
-        else:
-            raise RuntimeError('Dsun.ndim > 2 not implemented yet')
-
-        return E
+            raise ValueError("Dsun must be (3,) or (K,3) or (M,3)")
 
     def get_pyvista_unstructured_grid(self):
         try:
@@ -446,6 +451,8 @@ class EmbreeTrimeshShapeModel(TrimeshShapeModel):
 
         scene.commit()
 
+        scene.set_mesh_data(self.P, self.N)
+
         # This is the only variable we need to retain a reference to
         # (I think)
         self.scene = scene
@@ -507,29 +514,108 @@ class EmbreeTrimeshShapeModel(TrimeshShapeModel):
 
         return vis.reshape(m, n)
 
-    def _is_occluded(self, I, D):
-        if D.ndim != 1 and D.ndim != 2:
-            raise ValueError('D.ndim should be 1 or 2')
+    def _is_occluded(self, I, D, center='P', basescene=None, eps=None):
+        """
+        I : indices into the sampling set (faces if center='P', vertices if center='V')
+        D : (3,) for point sun or (K,3) for extended sun
+        center : 'P' → use (self.P, self.N); 'V' → use (self.V, self.VN)
+        basescene : optional Scene to test occlusion against (e.g., outer mesh),
+                    but origins still come from the selected (P/N or V/VN).
+        returns:
+          (M,) bool for point sun
+          (M,K) bool for extended sun
+        """
+        # choose sampling set
+        if center == 'P':
+            P = self.P
+            N = self.N
+            Mtotal = P.shape[0]
+        elif center == 'V':
+            P = self.V
+            N = self.VN
+            Mtotal = P.shape[0]
+        else:
+            raise ValueError("center must be 'P' or 'V'")
 
-        # TODO: see comment in _get_visibility
-        eps = 1e3*np.finfo(np.float32).resolution
+        I = np.asarray(I, dtype=np.int64)
+        if I.size == 0:
+            return np.zeros((0,), dtype=bool) if D.ndim == 1 else np.zeros((0, np.atleast_2d(D).shape[0]), dtype=bool)
+        if I.min() < 0 or I.max() >= Mtotal:
+            raise IndexError("I contains indices outside the selected sampling set")
 
-        m = len(I)
+        D2d = np.atleast_2d(D).astype(np.float64, copy=False)
+        if eps is None:
+            eps = 1e3 * np.finfo(np.float32).resolution  # ~1 mm
 
-        ray = embree.Ray1M(m)
-        ray.org[:] = self.P[I] + eps*self.N[I]
-        ray.dir[:] = D
-        ray.tnear[:] = 0
-        ray.tfar[:] = np.inf
-        ray.flags[:] = 0
+        scene = self.scene if basescene is None else basescene
 
-        context = embree.IntersectContext()
-        context.flags = embree.IntersectContextFlags.COHERENT
+        vis = scene.occluded_face_dir(
+            I=I,
+            D=np.ascontiguousarray(D2d, dtype=np.float64),
+            P=np.ascontiguousarray(P, dtype=np.float64),
+            N=np.ascontiguousarray(N, dtype=np.float64),
+            eps=eps,
+            # face_chunk=<leave default or tune>
+        )
 
-        self.scene.occluded1M(context, ray)
+        return vis[:, 0] if vis.shape[1] == 1 else vis
 
-        return np.logical_not(np.isposinf(ray.tfar))
-
+    # def _is_occluded(self, I, D):
+    #     """
+    #     I : (M,) face indices
+    #     D : (3,) for point sun or (K,3) for extended sun
+    #     returns:
+    #       (M,) bool for point sun
+    #       (M,K) bool for extended sun
+    #     """
+    #
+    #     if D.ndim != 1 and D.ndim != 2:
+    #         raise ValueError('D.ndim should be 1 or 2')
+    #
+    #     print(D.shape)
+    #
+    #     if False and D.shape[0] == 1:
+    #         # D = D.reshape(1, 3)
+    #         print("Going for K=1")
+    #
+    #         # TODO: see comment in _get_visibility
+    #         eps = 1e3 * np.finfo(np.float32).resolution
+    #
+    #         m = len(I)
+    #
+    #         ray = embree.Ray1M(m)
+    #         ray.org[:] = self.P[I] + eps * self.N[I]
+    #         ray.dir[:] = D
+    #         ray.tnear[:] = 0
+    #         ray.tfar[:] = np.inf
+    #         ray.flags[:] = 0
+    #
+    #         context = embree.IntersectContext()
+    #         context.flags = embree.IntersectContextFlags.COHERENT
+    #
+    #         self.scene.occluded1M(context, ray)
+    #
+    #         return np.logical_not(np.isposinf(ray.tfar))
+    #
+    #     else:
+    #         print("Going for any K")
+    #
+    #         I = np.asarray(I, dtype=np.int64)
+    #         D = np.asarray(D, dtype=np.float64)
+    #
+    #         eps = 1e3 * np.finfo(np.float32).resolution
+    #         # vis = self.scene.occluded_face_dir(I, D, self.P, self.N, eps=eps, dir_chunk=32)
+    #         vis = self.scene.occluded_face_dir(
+    #             I=np.asarray(I, dtype=np.int64),
+    #             D=np.ascontiguousarray(D, dtype=np.float64),
+    #             P=np.ascontiguousarray(self.P, dtype=np.float64),
+    #             N=np.ascontiguousarray(self.N, dtype=np.float64),
+    #             eps=eps,
+    #             # dir_chunk=64,  # tune 32..256
+    #         )
+    #         if vis.shape[1] == 1:
+    #             return vis[:, 0]
+    #         return vis
 
 trimesh_shape_models = [
     CgalTrimeshShapeModel,

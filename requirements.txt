@@ -45,3 +45,5 @@ urllib3>=2.0.5
 vtk>=9.2.6
 xarray>=2023.9.0
 zipp>=3.17.0
+pyyaml
+shapely
